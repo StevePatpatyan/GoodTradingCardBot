@@ -9,7 +9,7 @@ class TotalCardsExceededError(Exception):
     pass
 
 
-def addCard(user_id, card_id):
+def add_card(user_id, card_id):
     conn = sqlite3.connect("cards.db")
     cursor = conn.execute(
         "SELECT NextNumber,total FROM CardsGeneral WHERE id = ?", (card_id,)
