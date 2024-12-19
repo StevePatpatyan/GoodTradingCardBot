@@ -55,7 +55,9 @@ async def viewMyCards(ctx):
             check=lambda m: m.content.isdigit()
             and int(m.content) > 0
             and int(m.content) <= len(names)
-            or m.content == "q",
+            and m.author.id == ctx.author.id
+            or m.content == "q"
+            and m.author.id == ctx.author.id,
             timeout=60,
         )
         if message.content == "q":
@@ -74,7 +76,9 @@ async def viewAllCards(ctx):
     try:
         card_id = await bot.wait_for(
             "message",
-            check=lambda m: m.content.isdigit() and int(m.content) > 0,
+            check=lambda m: m.content.isdigit()
+            and int(m.content) > 0
+            and m.author.id == ctx.author.id,
             timeout=60,
         )
         conn = sqlite3.connect("cards.db")
