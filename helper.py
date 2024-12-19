@@ -1,17 +1,26 @@
 import sqlite3
 
 
+class CardNotFoundError(Exception):
+    pass
+
+
+class TotalCardsExceededError(Exception):
+    pass
+
+
 def addCard(user_id, card_id):
     conn = sqlite3.connect("cards.db")
     cursor = conn.execute(
-        "SELECT NextNumber FROM CardsGeneral WHERE id = ?", (card_id,)
+        "SELECT NextNumber,total FROM CardsGeneral WHERE id = ?", (card_id,)
     )
     rows = cursor.fetchall()
     if len(rows) == 0:
-        print("No such card...")
-        conn.close()
-        return
+        raise CardNotFoundError
     next_number = rows[0][0]
+    total = rows[0][1]
+    if next_number > total:
+        raise TotalCardsExceededError
     cursor = conn.execute(
         "INSERT INTO Cards VALUES(NULL, ?, ?, ?)",
         (
