@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import sqlite3
 from asyncio import TimeoutError
+import helper
 
 
 class Script(commands.Cog):
