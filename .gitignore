@@ -1,4 +1,6 @@
 .venv
 .env
 Images
+__pycache__
 cards.db
+personalScript.py
