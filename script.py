@@ -17,7 +17,9 @@ async def viewMyCards(ctx):
     # get users card names and numbers out of total cards
     id = ctx.author.id
     conn = sqlite3.connect("cards.db")
-    cursor = conn.execute(f"SELECT number,general_id FROM Cards WHERE owner_id = {id}")
+    cursor = conn.execute(
+        "SELECT number,general_id FROM Cards WHERE owner_id = ?", (id,)
+    )
     rows = cursor.fetchall()
     general_ids = [row[1] for row in rows]
     numbers = [row[0] for row in rows]
@@ -28,7 +30,7 @@ async def viewMyCards(ctx):
     totals = []
     for general in general_ids:
         cursor = conn.execute(
-            f"SELECT name,image,total FROM CardsGeneral WHERE id = {general}"
+            "SELECT name,image,total FROM CardsGeneral WHERE id = ?", (general,)
         )
         rows = cursor.fetchall()
         conn.close()
@@ -83,7 +85,8 @@ async def viewAllCards(ctx):
         )
         conn = sqlite3.connect("cards.db")
         cursor = conn.execute(
-            f"SELECT name,image,total FROM CardsGeneral WHERE id = {int(card_id.content)}"
+            "SELECT name,image,total FROM CardsGeneral WHERE id = ?",
+            (int(card_id.content),),
         )
         rows = cursor.fetchall()
         conn.close()
