@@ -6,7 +6,6 @@ import sqlite3
 from asyncio import TimeoutError
 
 intents = discord.Intents.all()
-intents.message_content = True
 dotenv.load_dotenv()
 
 bot = commands.Bot(command_prefix="$", intents=intents)
@@ -44,7 +43,7 @@ async def viewMyCards(ctx):
             await ctx.channel.send(f"{idx + 1}. {names[idx]} --> {numbers[idx]}")
         else:
             await ctx.channel.send(
-                f"{idx + 1}. {names[idx]} --> {numbers[idx]} out of {totals[idx]}"
+                f"{idx + 1}. {names[idx]} --> {numbers[idx]} of {totals[idx]}"
             )
 
     # allow to see one of the cards (image)
