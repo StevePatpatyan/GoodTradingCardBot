@@ -142,7 +142,8 @@ class Script(commands.Cog):
                 "message",
                 check=lambda m: m.author == ctx.author
                 and m.content.lower() == "y"
-                or m.content.lower() == "n",
+                or m.author == ctx.author
+                and m.content.lower() == "n",
                 timeout=60,
             )
             if response.content == "n":
@@ -188,17 +189,16 @@ class Script(commands.Cog):
         }
 
         # coin/vouchers multiplier depending on number of rolls / rarity (if reward for that rarity is coins)
-        cash_multiplier = 1
-        voucher_multiplier = 1
+        multiplier = 1
 
         # base number to multiply by (cash_base pulled from pack-specific data above)
         voucher_base = 1
 
         # roll 0 or 1 every time. if 1, move on to next rarity. if 0, stop and get rarity it was on
         for drop, reward_id in rewards.items():
-            if random.choice([0, 1]) == 0:
+            if random.choice([0, 1]) == 0 or drop == "MYTHICAL PULL":
                 if reward_id == -1:
-                    cash_rewarded = cash_base * cash_multiplier
+                    cash_rewarded = cash_base * multiplier
                     conn.execute(
                         f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
                         (ctx.author.id,),
@@ -207,7 +207,7 @@ class Script(commands.Cog):
                         f"<@{ctx.author.id}> you pulled the {drop} and got {cash_rewarded} cash!"
                     )
                 elif reward_id == -2:
-                    vouchers_rewarded = voucher_base * voucher_multiplier
+                    vouchers_rewarded = voucher_base * multiplier
                     conn.execute(
                         f"UPDATE Users SET vouchers = vouchers + {vouchers_rewarded} WHERE id = ?",
                         (ctx.author.id,),
@@ -224,7 +224,12 @@ class Script(commands.Cog):
                     await ctx.channel.send(
                         f"<@{ctx.author.id}> you pulled the {drop} and got {card_name}!"
                     )
-                conn.close()
+                break
+            else:
+                multiplier += 1
+        conn.commit()
+        conn.close()
+        return
 
     # check either cash or voucher balance
     @commands.command()
