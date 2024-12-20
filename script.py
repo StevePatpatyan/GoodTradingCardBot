@@ -143,6 +143,7 @@ class Script(commands.Cog):
                 check=lambda m: m.author == ctx.author
                 and m.content.lower() == "y"
                 or m.content.lower() == "n",
+                timeout=60,
             )
             if response.content == "n":
                 return
@@ -224,6 +225,26 @@ class Script(commands.Cog):
                         f"<@{ctx.author.id}> you pulled the {drop} and got {card_name}!"
                     )
                 conn.close()
+
+    # check either cash or voucher balance
+    @commands.command()
+    async def check_balance(self, ctx, check_type):
+        if check_type.lower() != "c" and check_type.lower() != "v":
+            await ctx.channel.send("Invalid balance type...")
+            return
+        conn = sqlite3.connect("cards.db")
+        if check_type.lower() == "c":
+            cash = conn.execute(
+                "SELECT cash from Users WHERE id = ?", (ctx.author.id,)
+            ).fetchall()[0][0]
+            await ctx.channel.send(f"You have {cash} cash.")
+        else:
+            vouchers = conn.execute(
+                "SELECT vouchers from Users WHERE id = ?", (ctx.author.id,)
+            ).fetchall()[0][0]
+            await ctx.channel.send(f"You have {vouchers} vouchers.")
+        conn.close()
+        return
 
 
 # setup cog/connection of this file to main.py

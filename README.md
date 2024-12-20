@@ -2,6 +2,8 @@ This is my trading card discord bot. The following code should be good to use fo
 
 The database schema I use for cards involves the general card info table as well as the table of specific cards tied to an owner and number out of the total of that particular card type. One can modify the code for themselves to fit a different schema!
 
+There is also a Users table which stores cash and voucher balance of a user as well as Packs table which stores info about packs that users can open.
+
 For now, the code assumes the person interacting with the bot is registered in the database,
 
 General Schema:
