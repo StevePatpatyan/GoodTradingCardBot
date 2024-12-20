@@ -37,3 +37,4 @@ EpicDrop: id of epic drop
 LegendaryDrop: id of legendary drop
 MythicalDrop: id of mythical drop
 available: whether or not pack is available (0 if unavailable or 1 if available)
+CashBase: base value of cash rewarded if drop rewards cash (see openPack command)

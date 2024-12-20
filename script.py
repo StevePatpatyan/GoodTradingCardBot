@@ -177,6 +177,7 @@ class Script(commands.Cog):
         epic_id = rows[0][5]
         legendary_id = rows[0][6]
         mythical_id = rows[0][7]
+        cash_base = rows[0][9]
         rewards = {
             "Common Drop": common_id,
             "Uncommon Drop": uncommon_id,
@@ -190,8 +191,7 @@ class Script(commands.Cog):
         cash_multiplier = 1
         voucher_multiplier = 1
 
-        # base number to multiply by (can be altered of course)
-        cash_base = 100
+        # base number to multiply by (cash_base pulled from pack-specific data above)
         voucher_base = 1
 
         # roll 0 or 1 every time. if 1, move on to next rarity. if 0, stop and get rarity it was on
@@ -228,7 +228,7 @@ class Script(commands.Cog):
 
     # check either cash or voucher balance
     @commands.command()
-    async def check_balance(self, ctx, check_type):
+    async def balance(self, ctx, check_type):
         if check_type.lower() != "c" and check_type.lower() != "v":
             await ctx.channel.send("Invalid balance type...")
             return
