@@ -196,7 +196,7 @@ class Script(commands.Cog):
 
         # roll 0 or 1 every time. if 1, move on to next rarity. if 0, stop and get rarity it was on
         for drop, reward_id in rewards.items():
-            if random.choice([0, 1]) == 0 or drop == "MYTHICAL PULL":
+            if random.choice([0, 1, 2]) != 2 or drop == "MYTHICAL PULL":
                 if reward_id == -1:
                     cash_rewarded = cash_base * multiplier
                     conn.execute(
