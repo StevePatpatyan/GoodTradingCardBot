@@ -29,6 +29,7 @@ Users:
 - username: discord username
 - cash: cash amount of user
 - vouchers: number of vouchers user has
+- LastLogin: last time user has logged in (stored to check if user has already claimed login bonus)
 
 Packs:
 
@@ -50,3 +51,12 @@ VoucherRewards:
 - available: availability of reward (0 if unavailable, 1 if available)
 - name: name of event that user will type as parameter of useVouchers command
 - CashRewarded: amount of cash voucher gives if reward is cash
+
+Questions (used for login bonus for now):
+
+- question: the question in question
+- answer1: one answer choice
+- answer2: another answer choice
+- answer3: another answer choice
+- answer4: another answer choice
+- correct: the actual correct answer to the question

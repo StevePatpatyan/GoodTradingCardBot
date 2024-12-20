@@ -4,6 +4,7 @@ import sqlite3
 from asyncio import TimeoutError
 import helper
 import random
+from datetime import datetime
 
 
 class Script(commands.Cog):
@@ -196,7 +197,7 @@ class Script(commands.Cog):
 
         # roll 0 or 1 every time. if 1, move on to next rarity. if 0, stop and get rarity it was on
         for drop, reward_id in rewards.items():
-            if random.choice([0, 1, 2]) != 2 or drop == "MYTHICAL PULL":
+            if random.choice(range(11)) > 5 or drop == "MYTHICAL PULL":
                 if reward_id == -1:
                     cash_rewarded = cash_base * multiplier
                     conn.execute(
@@ -369,6 +370,81 @@ class Script(commands.Cog):
         conn.commit()
         conn.close()
         return
+
+    # this asks the user a random multiple-choice question out of many questions stored in the database.
+    # Every time the user gets it wrong, the bonus goes down by 100 cash until they receive 100 cash as consolation
+    @commands.command()
+    async def login(self, ctx):
+        conn = sqlite3.connect("cards.db")
+        cursor = conn.execute(
+            "SELECT LastLogin FROM Users WHERE id = ?", (ctx.author.id,)
+        )
+        last_login = cursor.fetchall()[0][0]
+        last_login = datetime.strptime(last_login, "%m/%d/%Y").date()
+        today = datetime.today().date()
+        # check if already logged in
+        if last_login >= today:
+            await ctx.channel.send("Im afraid you've already logged in today...")
+            conn.close()
+            return
+
+        cursor = conn.execute("SELECT * FROM Questions")
+        questions = cursor.fetchall()
+        questions_only = [row[0] for row in questions]
+        conn.close()
+        # range goes down by 100 each iteration until it rewards 100 cash at last iteration
+        for cash in range(500, 99, -100):
+            if cash == 100:
+                await ctx.channel.send("Nice try today. Here is 100 cash!")
+            else:
+                await ctx.channel.send(f"Okay, here is your question for {cash} cash:")
+                conn.close()
+                selected = random.choice(questions)
+                question = selected[0]
+                answers = [selected[1], selected[2], selected[3], selected[4]]
+                # depending on random placement of answer choices, this will be the number the user will have to input to select the right answer
+                correct_choice = 0
+                correct_answer = selected[5]
+                await ctx.channel.send(f"**{question}**")
+                for idx in range(len(answers)):
+                    answer_choice = random.choice(answers)
+                    if answer_choice == correct_answer:
+                        correct_choice = idx + 1
+                    await ctx.channel.send(f"{idx+1}: {answer_choice}")
+                    answers.remove(answer_choice)
+                try:
+                    response = await self.bot.wait_for(
+                        "message",
+                        check=lambda m: m.author == ctx.author
+                        and m.content.isdigit()
+                        and int(m.content) in list(range(1, 5)),
+                        timeout=60,
+                    )
+                except TimeoutError:
+                    await ctx.channel.send("Timeout for choice...")
+                if int(response.content) == correct_choice:
+                    await ctx.channel.send(
+                        f"DING DING DING You just got {cash} cash!!! Login again tomorrow for another shot."
+                    )
+                    break
+                else:
+                    await ctx.channel.send("I'm afraid that is incorrect...")
+                    questions_only.remove(question)
+        # give cash and update last login
+        conn = sqlite3.connect("cards.db")
+        conn.execute(
+            f"UPDATE Users SET cash = cash + {cash} WHERE id = ?", (ctx.author.id,)
+        )
+        new_login_date = today.strftime("%m/%d/%Y")
+        conn.execute(
+            "UPDATE Users SET LastLogin = ? WHERE id = ?",
+            (
+                new_login_date,
+                ctx.author.id,
+            ),
+        )
+        conn.commit()
+        conn.close()
 
 
 # setup cog/connection of this file to main.py
