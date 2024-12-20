@@ -9,32 +9,44 @@ For now, the code assumes the person interacting with the bot is registered in t
 General Schema:
 
 CardsGeneral:
-id - general card id (or cash/voucher id)
-image - image path of card
-name - card name
-total - total number of cards available (infinite if NULL)
-NextNumber - next number of the card if a new one is generated (EX: If there are 4 of a card, NextNumber is 5)
+
+- id - general card id (or cash/voucher id)
+- image - image path of card
+- name - card name
+- total - total number of cards available (infinite if NULL)
+  NextNumber - next number of the card if a new one is generated (EX: If there are 4 of a card, NextNumber is 5)
 
 Cards:
-id: specific card id
-general_id: general card id (foreign key of id in CardsGeneral)
-number: number of the card compared to all of the cards of its type
-owner_id: discord id of the owner of the card (foreign key of id in Users)
+
+- id: specific card id
+- general_id: general card id (foreign key of id in CardsGeneral)
+- number: number of the card compared to all of the cards of its type
+- owner_id: discord id of the owner of the card (foreign key of id in Users)
 
 Users:
-id: discord user id
-username: discord username
-cash: cash amount of user
-vouchers: number of vouchers user has
+
+- id: discord user id
+- username: discord username
+- cash: cash amount of user
+- vouchers: number of vouchers user has
 
 Packs:
-name: pack name
-cost: cash cost of pack
-CommonDrop: id of common drop
-UncommonDrop: id of uncommon drop
-RareDrop: id of rare drop
-EpicDrop: id of epic drop
-LegendaryDrop: id of legendary drop
-MythicalDrop: id of mythical drop
-available: whether or not pack is available (0 if unavailable or 1 if available)
-CashBase: base value of cash rewarded if drop rewards cash (see openPack command)
+
+- name: pack name
+- cost: cash cost of pack
+- CommonDrop: id of common drop
+- UncommonDrop: id of uncommon drop
+- RareDrop: id of rare drop
+- EpicDrop: id of epic drop
+- LegendaryDrop: id of legendary drop
+- MythicalDrop: id of mythical drop
+- available: whether or not pack is available (0 if unavailable or 1 if available)
+- CashBase: base value of cash rewarded if drop rewards cash (see openPack command)
+
+VoucherRewards:
+
+- cost: cost of reward in vouchers
+- reward_id: general id of reward (CardsGeneral id)
+- available: availability of reward (0 if unavailable, 1 if available)
+- name: name of event that user will type as parameter of useVouchers command
+- CashRewarded: amount of cash voucher gives if reward is cash

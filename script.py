@@ -216,14 +216,29 @@ class Script(commands.Cog):
                         f"<@{ctx.author.id}> you pulled the {drop} and got {vouchers_rewarded} vouchers!"
                     )
                 else:
-                    helper.add_card(ctx.author.id, reward_id)
                     cursor = conn.execute(
-                        "SELECT name FROM CardsGeneral WHERE id = ?", (reward_id,)
+                        "SELECT name,total,NextNumber FROM CardsGeneral WHERE id = ?",
+                        (reward_id,),
                     )
-                    card_name = cursor.fetchall()[0][0]
-                    await ctx.channel.send(
-                        f"<@{ctx.author.id}> you pulled the {drop} and got {card_name}!"
-                    )
+                    rows = cursor.fetchall()
+                    next_number = rows[0][2]
+                    total = rows[0][1]
+                    card_name = rows[0][0]
+                    # reward cash if there are no more cards to give
+                    if next_number > total:
+                        cash_rewarded = cash_base * multiplier
+                        conn.execute(
+                            f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
+                            (ctx.author.id,),
+                        )
+                        await ctx.channel.send(
+                            f"<@{ctx.author.id}> you pulled the {drop}! There are no more {card_name} cards available so you got {cash_rewarded} cash instead."
+                        )
+                    else:
+                        await ctx.channel.send(
+                            f"<@{ctx.author.id}> you pulled the {drop} and got {card_name}!"
+                        )
+                        helper.add_card(ctx.author.id, reward_id)
                 break
             else:
                 multiplier += 1
@@ -248,6 +263,106 @@ class Script(commands.Cog):
                 "SELECT vouchers from Users WHERE id = ?", (ctx.author.id,)
             ).fetchall()[0][0]
             await ctx.channel.send(f"You have {vouchers} vouchers.")
+        conn.close()
+        return
+
+    # use vouchers to get event rewards
+    @commands.command()
+    async def useVouchers(self, ctx, name):
+        # get specified voucher reward info, check reward exists and if it's available
+        try:
+            conn = sqlite3.connect("cards.db")
+            cursor = conn.execute(
+                "SELECT * FROM VoucherRewards WHERE name = ?", (name,)
+            )
+            rows = cursor.fetchall()
+            conn.close()
+
+            if len(rows) == 0:
+                await ctx.channel.send("Voucher does not exist...")
+                return
+
+            is_available = rows[0][2]
+            if is_available == 0:
+                raise helper.PackNotAvailableError
+        except helper.PackNotAvailableError:
+            await ctx.channel.send("That reward is currently not available to claim...")
+
+        # confirm buying pack
+        name = rows[0][3]
+        cost = rows[0][0]
+
+        await ctx.channel.send(
+            f"Would you like to buy {name} Pack for {cost} vouchers? (y/n)"
+        )
+
+        try:
+            response = await self.bot.wait_for(
+                "message",
+                check=lambda m: m.author == ctx.author
+                and m.content.lower() == "y"
+                or m.author == ctx.author
+                and m.content.lower() == "n",
+                timeout=60,
+            )
+            if response.content == "n":
+                return
+        except TimeoutError:
+            await ctx.channel.send("Timeout for choice...")
+            return
+
+        # at this point, user responded with "y"
+
+        # subtract cost from balance (if sufficient vouchers)
+        try:
+            conn = sqlite3.connect("cards.db")
+            cursor = conn.execute(
+                "SELECT vouchers FROM Users WHERE id = ?", (ctx.author.id,)
+            )
+            cash = cursor.fetchall()[0][0]
+            if cash < cost:
+                raise helper.NotEnoughCashError
+            conn.execute(
+                f"UPDATE Users SET vouchers = vouchers - {cost} WHERE id = ?",
+                (ctx.author.id,),
+            )
+            conn.commit()
+        except helper.NotEnoughCashError:
+            await ctx.channel.send("You do not have enough vouchers...")
+            conn.close()
+            return
+
+        # give reward to user
+        reward_id = rows[0][1]
+        cash_rewarded = rows[0][4]
+        if reward_id == -1:
+            conn.execute(
+                f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
+                (ctx.author.id,),
+            )
+            await ctx.channel.send(
+                f"<@{ctx.author.id}> you claimed the {name} voucher and got {cash_rewarded} cash!"
+            )
+        else:
+            helper.add_card(ctx.author.id, reward_id)
+            cursor = conn.execute(
+                "SELECT name,total,NextNumber FROM CardsGeneral WHERE id = ?",
+                (reward_id,),
+            )
+            rows = cursor.fetchall()
+            card_name = rows[0][0]
+            next_number = rows[0][2]
+            total = rows[0][1]
+            await ctx.channel.send(
+                f"<@{ctx.author.id}> you claimed the {name} voucher and got {card_name}!"
+            )
+            # if card ran out, set as unavailable
+            if next_number > total:
+                conn.execute(
+                    "UPDATE VoucherRewards SET available = 0 WHERE name = ?", (name,)
+                )
+                await ctx.channel.send("There are no more of this card available...")
+        conn.commit()
         conn.close()
         return
 
