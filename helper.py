@@ -9,6 +9,14 @@ class TotalCardsExceededError(Exception):
     pass
 
 
+class NotEnoughCashError(Exception):
+    pass
+
+
+class PackNotAvailableError(Exception):
+    pass
+
+
 def add_card(user_id, card_id):
     conn = sqlite3.connect("cards.db")
     cursor = conn.execute(
@@ -21,7 +29,7 @@ def add_card(user_id, card_id):
     total = rows[0][1]
     if next_number > total:
         raise TotalCardsExceededError
-    cursor = conn.execute(
+    conn.execute(
         "INSERT INTO Cards VALUES(NULL, ?, ?, ?)",
         (
             card_id,
@@ -29,9 +37,8 @@ def add_card(user_id, card_id):
             user_id,
         ),
     )
-    conn.commit()
     # iterate next card number to be assigned for the specific card
-    cursor = conn.execute(
+    conn.execute(
         "UPDATE CardsGeneral SET NextNumber = NextNumber + 1 WHERE id = ?",
         (card_id,),
     )
