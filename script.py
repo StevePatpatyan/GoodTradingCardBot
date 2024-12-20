@@ -217,7 +217,7 @@ class Script(commands.Cog):
                     )
                 else:
                     cursor = conn.execute(
-                        "SELECT name,total,NextNumber FROM CardsGeneral WHERE id = ?",
+                        "SELECT name,total,NextNumber,image FROM CardsGeneral WHERE id = ?",
                         (reward_id,),
                     )
                     rows = cursor.fetchall()
@@ -238,6 +238,10 @@ class Script(commands.Cog):
                         await ctx.channel.send(
                             f"<@{ctx.author.id}> you pulled the {drop} and got {card_name}!"
                         )
+                        # send image of card to show off if mythical
+                        if drop == "MYTHICAL PULL":
+                            image = rows[0][3]
+                            await ctx.channel.send(file=discord.File(image))
                         helper.add_card(ctx.author.id, reward_id)
                 break
             else:
