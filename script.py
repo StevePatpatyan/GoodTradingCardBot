@@ -321,7 +321,7 @@ class Script(commands.Cog):
                 )
                 conn.commit()
             except helper.NotEnoughCashError:
-                await interaction.edit_message(
+                await interaction.response.edit_message(
                     content="You do not have enough vouchers...", view=None
                 )
                 conn.close()
@@ -335,7 +335,7 @@ class Script(commands.Cog):
                     f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
                     (ctx.author.id,),
                 )
-                await interaction.edit_messaged(
+                await interaction.response.edit_message(
                     content=f"<@{ctx.author.id}> you claimed the {name} voucher and got {cash_rewarded} cash!",
                     view=None,
                 )
@@ -349,7 +349,7 @@ class Script(commands.Cog):
                 card_name = rows[0][0]
                 next_number = rows[0][2]
                 total = rows[0][1]
-                await interaction.edit_message(
+                await interaction.response.edit_message(
                     content=f"<@{ctx.author.id}> you claimed the {name} voucher and got {card_name}!",
                     view=None,
                 )
@@ -359,7 +359,7 @@ class Script(commands.Cog):
                         "UPDATE VoucherRewards SET available = 0 WHERE name = ?",
                         (name,),
                     )
-                    await interaction.edit_message(
+                    await interaction.response.edit_message(
                         content="There are no more of this card available...", view=None
                     )
             conn.commit()
@@ -394,6 +394,39 @@ class Script(commands.Cog):
     # Every time the user gets it wrong, the bonus goes down by 100 cash until they receive 100 cash as consolation
     @commands.command()
     async def login(self, ctx):
+        # function when user selects and answer
+        async def callback(interaction):
+            cash_rewarded = 250
+            # check if answer is correct
+            if select_menu.values[0] == "correct":
+                cash_rewarded = cash_rewarded * 2
+                await interaction.response.edit_message(
+                    content=f"DING DING DING You just got {cash_rewarded} cash!!! Login again tomorrow for another shot.",
+                    view=None,
+                )
+            else:
+                await interaction.response.edit_message(
+                    content=f"I'm afraid that is incorrect... you still get {cash_rewarded} cash! Login again tomorrow for another shot.",
+                    view=None,
+                )
+            # give cash and update last login
+            conn = sqlite3.connect("cards.db")
+            conn.execute(
+                f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
+                (ctx.author.id,),
+            )
+            new_login_date = today.strftime("%m/%d/%Y")
+            conn.execute(
+                "UPDATE Users SET LastLogin = ? WHERE id = ?",
+                (
+                    new_login_date,
+                    ctx.author.id,
+                ),
+            )
+            conn.commit()
+            conn.close()
+            return
+
         conn = sqlite3.connect("cards.db")
         cursor = conn.execute(
             "SELECT LastLogin FROM Users WHERE id = ?", (ctx.author.id,)
@@ -403,67 +436,35 @@ class Script(commands.Cog):
         today = datetime.today().date()
         # check if already logged in
         if last_login >= today:
-            await ctx.channel.send("Im afraid you've already logged in today...")
+            await ctx.channel.send("I'm afraid you've already logged in today...")
             conn.close()
             return
-
+        # get question to answer
+        conn = sqlite3.connect("cards.db")
         cursor = conn.execute("SELECT * FROM Questions")
         questions = cursor.fetchall()
-        questions_only = [row[0] for row in questions]
         conn.close()
-        # range goes down by 100 each iteration until it rewards 100 cash at last iteration
-        for cash in range(500, 99, -100):
-            if cash == 100:
-                await ctx.channel.send("Nice try today. Here is 100 cash!")
-            else:
-                await ctx.channel.send(f"Okay, here is your question for {cash} cash:")
-                conn.close()
-                selected = random.choice(questions)
-                question = selected[0]
-                answers = [selected[1], selected[2], selected[3], selected[4]]
-                # depending on random placement of answer choices, this will be the number the user will have to input to select the right answer
-                correct_choice = 0
-                correct_answer = selected[5]
-                await ctx.channel.send(f"**{question}**")
-                for idx in range(len(answers)):
-                    answer_choice = random.choice(answers)
-                    if answer_choice == correct_answer:
-                        correct_choice = idx + 1
-                    await ctx.channel.send(f"{idx+1}: {answer_choice}")
-                    answers.remove(answer_choice)
-                try:
-                    response = await self.bot.wait_for(
-                        "message",
-                        check=lambda m: m.author == ctx.author
-                        and m.content.isdigit()
-                        and int(m.content) in list(range(1, 5)),
-                        timeout=60,
-                    )
-                except TimeoutError:
-                    await ctx.channel.send("Timeout for choice...")
-                if int(response.content) == correct_choice:
-                    await ctx.channel.send(
-                        f"DING DING DING You just got {cash} cash!!! Login again tomorrow for another shot."
-                    )
-                    break
-                else:
-                    await ctx.channel.send("I'm afraid that is incorrect...")
-                    questions_only.remove(question)
-        # give cash and update last login
-        conn = sqlite3.connect("cards.db")
-        conn.execute(
-            f"UPDATE Users SET cash = cash + {cash} WHERE id = ?", (ctx.author.id,)
-        )
-        new_login_date = today.strftime("%m/%d/%Y")
-        conn.execute(
-            "UPDATE Users SET LastLogin = ? WHERE id = ?",
+        selected = random.choice(questions)
+        question = selected[0]
+        answers = [selected[1], selected[2], selected[3], selected[4]]
+        correct = selected[5]
+        # create select menu for login question for user to answer, marking correct answer for interaction function to recognize which option is correct
+        select_options = [
             (
-                new_login_date,
-                ctx.author.id,
-            ),
+                discord.SelectOption(label=answer, value="correct")
+                if answer == correct
+                else discord.SelectOption(label=answer, value=answer)
+            )
+            for answer in answers
+        ]
+        select_menu = discord.ui.Select(options=select_options, custom_id="login")
+        select_menu.callback = callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select_menu)
+        await ctx.channel.send(
+            "I can give you 250 cash today... OR YOU CAN DOUBLE IT IF YOU ANSWER THE FOLLOWING QUESTION CORRECTLY!!!"
         )
-        conn.commit()
-        conn.close()
+        await ctx.channel.send(f"**{question}**", view=view)
 
 
 # setup cog/connection of this file to main.py
