@@ -43,6 +43,7 @@ Packs:
 - MythicalDrop: id of mythical drop
 - available: whether or not pack is available (0 if unavailable or 1 if available)
 - CashBase: base value of cash rewarded if drop rewards cash (see openPack command)
+- description - description of pack
 
 VoucherRewards:
 
@@ -51,6 +52,7 @@ VoucherRewards:
 - available: availability of reward (0 if unavailable, 1 if available)
 - name: name of event that user will type as parameter of useVouchers command
 - CashRewarded: amount of cash voucher gives if reward is cash
+- description of reward
 
 Questions (used for login bonus for now):
 
