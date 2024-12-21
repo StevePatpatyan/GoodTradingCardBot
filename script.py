@@ -396,6 +396,11 @@ class Script(commands.Cog):
     async def login(self, ctx):
         # function when user selects and answer
         async def callback(interaction):
+            if interaction.user != ctx.author:
+                await interaction.response.send_message(
+                    f"<@{interaction.user.id}> this is not your voucher claim window..."
+                )
+                return
             cash_rewarded = 250
             # check if answer is correct
             if select_menu.values[0] == "correct":
