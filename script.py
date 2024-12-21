@@ -466,8 +466,9 @@ class Script(commands.Cog):
         select_menu.callback = callback
         view = discord.ui.View(timeout=60)
         view.add_item(select_menu)
+        cash_rewarded = 250
         await ctx.channel.send(
-            "I can give you 250 cash today... OR YOU CAN DOUBLE IT IF YOU ANSWER THE FOLLOWING QUESTION CORRECTLY!!!"
+            f"I can give you {cash_rewarded} cash today... OR YOU CAN DOUBLE IT IF YOU ANSWER THE FOLLOWING QUESTION CORRECTLY!!!"
         )
         await ctx.channel.send(f"**{question}**", view=view)
 
