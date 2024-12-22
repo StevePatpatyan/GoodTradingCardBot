@@ -110,7 +110,9 @@ class Script(commands.Cog):
                 return
             # get specified all available pack info
             conn = sqlite3.connect("cards.db")
-            cursor = conn.execute("SELECT * FROM Packs WHERE available = 1")
+            cursor = conn.execute(
+                "SELECT * FROM Packs WHERE name = ?", (select_menu.values[0],)
+            )
             rows = cursor.fetchall()
             conn.close()
 
@@ -120,7 +122,7 @@ class Script(commands.Cog):
                     content="Cancelled pack opening...", view=None
                 )
                 return
-            cost = [row[1] for row in rows if row[0] == name][0]
+            cost = rows[0][1]
             # subtract cost from balance (if sufficient cash)
             try:
                 conn = sqlite3.connect("cards.db")
@@ -300,7 +302,9 @@ class Script(commands.Cog):
                 return
             # get specified voucher reward info, check reward exists and if it's available
             conn = sqlite3.connect("cards.db")
-            cursor = conn.execute("SELECT * FROM VoucherRewards WHERE available = 1")
+            cursor = conn.execute(
+                "SELECT * FROM VoucherRewards WHERE name = ?", (select_menu.values,)
+            )
             rows = cursor.fetchall()
             conn.close()
 
@@ -311,7 +315,7 @@ class Script(commands.Cog):
                 )
                 return
             name = select_menu.values[0]
-            cost = [row[0] for row in rows if row[3] == name][0]
+            cost = rows[0][0]
             # subtract cost from balance (if sufficient vouchers)
             try:
                 conn = sqlite3.connect("cards.db")
@@ -334,9 +338,8 @@ class Script(commands.Cog):
                 return
 
             # give reward to user
-            reward_row = [row for row in rows if row[3] == name][0]
-            reward_id = reward_row[1]
-            cash_rewarded = reward_row[4]
+            reward_id = rows[0][1]
+            cash_rewarded = rows[0][4]
             if reward_id == -1:
                 conn.execute(
                     f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
@@ -407,7 +410,7 @@ class Script(commands.Cog):
         async def callback(interaction):
             if interaction.user != ctx.author:
                 await interaction.response.send_message(
-                    f"<@{interaction.user.id}> this is not your voucher claim window..."
+                    f"<@{interaction.user.id}> this is not your login window..."
                 )
                 return
             cash_rewarded = 250
@@ -482,14 +485,339 @@ class Script(commands.Cog):
         await ctx.channel.send(f"**{question}**", view=view)
 
     # trade with others! basic way this works is switching ids of card owner in database/giving and subtracting coins and vouchers
+    # input is @user
     @commands.command()
     async def trade(self, ctx, partner):
-        async def offer_callback(interaction):
-            pass
+        async def init_callback(interaction, partner):
+            # the final callback function, which asks initiator of trade to choose what they want from the partner, and complete the trade/timeout
+            async def partner_callback(interaction, init_values, offers):
+                # make sure interactor is command invoker
+                if interaction.user != ctx.author:
+                    await interaction.response.send_message(
+                        f"<@{interaction.user.id} this is not your trade window..."
+                    )
+                    return
+                if "Cancel" in partner_select_menu.values:
+                    await interaction.response.edit_message(
+                        content="Trade cancelled...", view=None
+                    )
+                    return
+                partner_id = int(partner[2:-1])
 
+                # check if the user wants cash, vouchers, card, or canceled the trade
+                proposals = []
+                conn = sqlite3.connect("cards.db")
+                for value in partner_select_menu.values:
+                    if value == "cash" or value == "vouchers":
+                        amount = conn.execute(
+                            f"SELECT {value} FROM Users WHERE id = ?",
+                            (partner_id,),
+                        ).fetchall()[0][0]
+                        try:
+                            # make sure it is first interaction message, since it can only respond once (first time will be when cash or vouchers amount is asked for)
+                            if (
+                                "cash"
+                                in partner_select_menu.values[
+                                    : partner_select_menu.values.index(value)
+                                ]
+                                or "vouchers"
+                                in partner_select_menu.values[
+                                    : partner_select_menu.values.index(value)
+                                ]
+                            ):
+                                await ctx.channel.send(
+                                    content=f"How much {value.lower()} do you propose?",
+                                    view=None,
+                                )
+                            else:
+                                await interaction.response.edit_message(
+                                    content=f"How much {value.lower()} do you propose?",
+                                    view=None,
+                                )
+                            proposal = await self.bot.wait_for(
+                                "message",
+                                check=lambda m: m.author == ctx.author
+                                and m.content.isdigit()
+                                and int(m.content) >= 0,
+                                timeout=60,
+                            )
+                            if int(proposal.content) > amount:
+                                raise helper.NotEnoughCashError
+                        except helper.NotEnoughCashError:
+                            await interaction.response.edit_message(
+                                content=f"This person does not have enough {init_select_menu.values[0].lower()} to offer that much... closing trade...",
+                                view=None,
+                            )
+                            conn.close()
+                            return
+                        except TimeoutError:
+                            await interaction.response.edit_message(
+                                content="Timeout for choice...", view=None
+                            )
+                            conn.close()
+                            return
+                        proposals.append(f"{proposal.content} {value}")
+                    # user offered card, decrypt the value into a structured part for the trade message
+                    else:
+                        proposal = " --> ".join(value.split("~"))
+                        proposals.append(proposal)
+                conn.close()
+                # construct the trade message
+                # make sure it is first interaction message, since it can only respond once (first time will be when cash or vouchers amount is asked for)
+                if (
+                    "cash" in partner_select_menu.values
+                    or "vouchers" in partner_select_menu.values
+                ):
+                    await ctx.channel.send(
+                        f"<@{partner_id}> <@{ctx.author.id}> is offering the following:"
+                    )
+                else:
+                    await interaction.response.edit_message(
+                        content=f"<@{partner_id}> <@{ctx.author.id}> is offering the following:",
+                        view=None,
+                    )
+                for offer in offers:
+                    await ctx.channel.send(offer)
+                await ctx.channel.send("...and is asking of you the following:")
+                for proposal in proposals:
+                    await ctx.channel.send(proposal)
+                try:
+                    await ctx.channel.send("Do you accept or decline? (y/n)")
+                    response = await self.bot.wait_for(
+                        "message",
+                        check=lambda m: m.author.id == partner_id
+                        and m.content.lower() == "y"
+                        or m.author.id == partner_id
+                        and m.content.lower() == "n",
+                        timeout=120,
+                    )
+                    # exchange contents
+                    if response.content.lower() == "y":
+                        await ctx.channel.send("Please wait...")
+                        for value, offer in list(zip(init_values, offers)):
+                            if value == "cash" or value == "vouchers":
+                                amount = int(offer.split(" ")[0])
+                                helper.transfer(
+                                    value, value, ctx.author.id, partner_id, amount
+                                )
+                            else:
+                                helper.transfer(
+                                    "card", value, ctx.author.id, partner_id
+                                )
+
+                        for value, proposals in list(
+                            zip(partner_select_menu.values, proposals)
+                        ):
+                            if value == "cash" or value == "vouchers":
+                                amount = proposal.split(" ")[0]
+                                helper.transfer(
+                                    value, value, partner_id, ctx.author.id, amount
+                                )
+                            else:
+                                helper.transfer(
+                                    "card", value, partner_id, ctx.author.id
+                                )
+                        await ctx.channel.send(
+                            f"<@{partner_id}> accepted <@{ctx.author.id}>'s trade!"
+                        )
+                    else:
+                        await ctx.channel.send(
+                            f"<@{partner_id}> respectfully declined <@{ctx.author.id}>'s trade..."
+                        )
+                        return
+                except TimeoutError:
+                    await ctx.channel.send("Timeout for choice...")
+                    return
+
+            ######################## initial callback ##############################
+            if interaction.user != ctx.author:
+                await interaction.response.send_message(
+                    f"<@{interaction.user.id} this is not your trade window..."
+                )
+                return
+            if "Cancel" in init_select_menu.values:
+                await interaction.response.edit_message(
+                    content="Trade cancelled...", view=None
+                )
+                return
+            # make select menu for partner's cards
+            partner_id = partner[2:-1]
+            partner_id = int(partner_id)
+            conn = sqlite3.connect("cards.db")
+            # check if user is in database
+            if (
+                len(
+                    conn.execute(
+                        "SELECT id FROM Users WHERE id = ?", (partner_id,)
+                    ).fetchall()
+                )
+                == 0
+            ):
+                await ctx.channel.send("This user is not in the database...")
+                conn.close()
+                return
+            cursor = conn.execute(
+                "SELECT general_id,number FROM Cards WHERE owner_id = ?", (partner_id,)
+            )
+            rows = cursor.fetchall()
+            general_ids = [row[0] for row in rows]
+            numbers = [row[1] for row in rows]
+            names = [
+                conn.execute(
+                    "SELECT name FROM CardsGeneral WHERE id = ?", (general_id,)
+                ).fetchall()[0][0]
+                for general_id in general_ids
+            ]
+            partner_select_options = [
+                discord.SelectOption(
+                    label=name,
+                    description=f"Card number: {number} out of total",
+                    value=f"{name}~#{number} out of total",
+                )
+                for (name, number) in list(zip(names, numbers))
+            ] + [
+                discord.SelectOption(label="Cash", value="cash"),
+                discord.SelectOption(label="Vouchers", value="vouchers"),
+                discord.SelectOption(label="Cancel Trade", value="Cancel"),
+            ]
+            partner_select_menu = discord.ui.Select(
+                options=partner_select_options,
+                custom_id="partnertrade",
+                max_values=len(partner_select_options),
+            )
+            partner_view = discord.ui.View(timeout=60)
+            partner_view.add_item(partner_select_menu)
+            # check if the user offered cash, vouchers, card, or canceled the trade
+            offers = []
+            conn = sqlite3.connect("cards.db")
+            for value in init_select_menu.values:
+                if value == "cash" or value == "vouchers":
+                    amount = conn.execute(
+                        f"SELECT {value} FROM Users WHERE id = ?",
+                        (ctx.author.id,),
+                    ).fetchall()[0][0]
+                    try:
+                        # make sure it is first interaction message, since it can only respond once (first time will be when cash or vouchers amount is asked for)
+                        if (
+                            "cash"
+                            in init_select_menu.values[
+                                : init_select_menu.values.index(value)
+                            ]
+                            or "vouchers"
+                            in init_select_menu.values[
+                                : init_select_menu.values.index(value)
+                            ]
+                        ):
+                            await ctx.channel.send(
+                                content=f"How much {value.lower()} are you offering?",
+                                view=None,
+                            )
+                        else:
+                            await interaction.response.edit_message(
+                                content=f"How much {value.lower()} are you offering?",
+                                view=None,
+                            )
+                        offer = await self.bot.wait_for(
+                            "message",
+                            check=lambda m: m.author == ctx.author
+                            and m.content.isdigit()
+                            and int(m.content) >= 0,
+                            timeout=60,
+                        )
+                        if int(offer.content) > amount:
+                            raise helper.NotEnoughCashError
+                    except helper.NotEnoughCashError:
+                        await interaction.response.edit_message(
+                            content=f"You do not have enough {value.lower()} to offer that much... closing trade...",
+                            view=None,
+                        )
+                        conn.close()
+                        return
+                    except TimeoutError:
+                        await interaction.response.edit_message(
+                            content="Timeout for choice...", view=None
+                        )
+                        conn.close()
+                        return
+                    offers.append(f"{offer.content} {value}")
+                # user offered a card, decrypt so that it makes sense in the trade message
+                else:
+                    offer = " --> ".join(value.split("~"))
+                    offers.append(offer)
+            conn.close()
+            partner_select_menu.callback = lambda interaction: partner_callback(
+                interaction, init_select_menu.values, offers
+            )
+            # make sure it is first interaction message, since it can only respond once (first time will be when cash or vouchers amount is asked for)
+            if (
+                "cash" in init_select_menu.values
+                or "vouchers" in init_select_menu.values
+            ):
+                await ctx.channel.send(
+                    "What would you like from the other person?", view=partner_view
+                )
+            else:
+                await interaction.response.edit_message(
+                    content="What would you like from the other person?",
+                    view=partner_view,
+                )
+
+        ################## trade function #####################################
+        # check if input was @user format
+        partner_id = partner[2:-1]
+        if not partner_id.isdigit():
+            await ctx.channel.send("Invalid input...")
+            return
+
+        # preventing trading with self
+        if int(partner_id) == ctx.author.id:
+            await ctx.channel.send("You can't trade with yourself, silly...")
+            return
+
+        # create select menus for invoker/initiator's cards
         conn = sqlite3.connect("cards.db")
-        cursor = conn.execute("SELECT")
-        select_options = []
+        cursor = conn.execute(
+            "SELECT general_id,number FROM Cards WHERE owner_id = ?", (ctx.author.id,)
+        )
+
+        rows = cursor.fetchall()
+        general_ids = [row[0] for row in rows]
+        numbers = [row[1] for row in rows]
+        names = [
+            conn.execute(
+                "SELECT name FROM CardsGeneral WHERE id = ?", (general_id,)
+            ).fetchall()[0][0]
+            for general_id in general_ids
+        ]
+        init_select_options = [
+            discord.SelectOption(
+                label=name,
+                description=f"Card number: {number} out of total",
+                value=f"{name}~#{number} out of total",
+            )
+            for (name, number) in list(zip(names, numbers))
+        ] + [
+            discord.SelectOption(label="Cash", value="cash"),
+            discord.SelectOption(label="Vouchers", value="vouchers"),
+            discord.SelectOption(label="Cancel Trade", value="Cancel"),
+        ]
+        init_select_menu = discord.ui.Select(
+            options=init_select_options,
+            custom_id="inittrade",
+            max_values=len(init_select_options),
+        )
+
+        init_view = discord.ui.View(timeout=60)
+        init_view.add_item(init_select_menu)
+
+        init_select_menu.callback = lambda interaction: init_callback(
+            interaction, partner
+        )
+
+        await ctx.channel.send(
+            "What are you offering?",
+            view=init_view,
+        )
 
 
 # setup cog/connection of this file to main.py
