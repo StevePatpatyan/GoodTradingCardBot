@@ -71,42 +71,30 @@ class Script(commands.Cog):
             return
 
     @commands.command()
-    async def viewcard(self, ctx):
+    async def viewcard(self, ctx, card_id):
         # view general card name, total, and image based on id in database
-        await ctx.channel.send("Select ID of the card.")
-        try:
-            card_id = await self.bot.wait_for(
-                "message",
-                check=lambda m: m.content.isdigit()
-                and int(m.content) > 0
-                and m.author.id == ctx.author.id,
-                timeout=60,
-            )
-            conn = sqlite3.connect("cards.db")
-            cursor = conn.execute(
-                "SELECT name,image,total FROM CardsGeneral WHERE id = ?",
-                (int(card_id.content),),
-            )
-            rows = cursor.fetchall()
-            conn.close()
-            # card does not exist
-            if len(rows) == 0:
-                await ctx.channel.send("No such card...")
-                return
-            else:
-                info = rows[0]
-                await ctx.channel.send(file=discord.File(info[1]))
-                if info[2]:
-                    await ctx.channel.send(
-                        f"{info[0]}. There are {info[2]} total of this card out there!"
-                    )
-                else:
-                    await ctx.channel.send(
-                        f"{info[0]}. This card's population can still be increased!"
-                    )
-        except TimeoutError:
-            await ctx.channel.send("Timeout for choice...")
+        conn = sqlite3.connect("cards.db")
+        cursor = conn.execute(
+            "SELECT name,image,total FROM CardsGeneral WHERE id = ?",
+            (int(card_id),),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        # card does not exist
+        if len(rows) == 0:
+            await ctx.channel.send("No such card...")
             return
+        else:
+            info = rows[0]
+            await ctx.channel.send(file=discord.File(info[1]))
+            if info[2]:
+                await ctx.channel.send(
+                    f"{info[0]}. There are {info[2]} total of this card out there!"
+                )
+            else:
+                await ctx.channel.send(
+                    f"{info[0]}. This card's population can still be increased!"
+                )
 
     # this command takes in a name after the command name in Discord, then asks user if they want to buy pack.
     # it uses the ids of cards to assign rewards. The code uses -1 for coins and -2 for vouchers, which I intend to use as a voucher system for claiming event cards
@@ -207,17 +195,33 @@ class Script(commands.Cog):
                         next_number = rows[0][2]
                         total = rows[0][1]
                         card_name = rows[0][0]
-                        # reward cash if there are no more cards to give
+                        # reward cash or vouchers if there are no more cards to give
                         if next_number > total:
-                            cash_rewarded = cash_base * multiplier
-                            conn.execute(
-                                f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
-                                (ctx.author.id,),
-                            )
-                            await interaction.response.edit_message(
-                                content=f"<@{ctx.author.id}> you pulled the {drop}! There are no more {card_name} cards available so you got {cash_rewarded} cash instead.",
-                                view=None,
-                            )
+                            mythical_cash_multiplier = 12
+                            mythical_voucher_multiplier = multiplier
+                            cash_andor_vouchers = "v"
+                            if "c" in cash_andor_vouchers:
+                                cash_rewarded = cash_base * mythical_cash_multiplier
+                                conn.execute(
+                                    f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
+                                    (ctx.author.id,),
+                                )
+                                await interaction.response.edit_message(
+                                    content=f"<@{ctx.author.id}> you pulled the {drop}! There are no more {card_name} cards available so you got {cash_rewarded} cash instead.",
+                                    view=None,
+                                )
+                            if "v" in cash_andor_vouchers:
+                                vouchers_rewarded = (
+                                    voucher_base * mythical_voucher_multiplier
+                                )
+                                conn.execute(
+                                    f"UPDATE Users SET vouchers = vouchers + {vouchers_rewarded} WHERE id = ?",
+                                    (ctx.author.id,),
+                                )
+                                await interaction.response.edit_message(
+                                    content=f"<@{ctx.author.id}> you pulled the {drop}! There are no more {card_name} cards available so you got {vouchers_rewarded} vouchers instead.",
+                                    view=None,
+                                )
                         else:
                             await interaction.response.edit_message(
                                 content=f"<@{ctx.author.id}> you pulled the {drop} and got {card_name}!",
@@ -244,12 +248,16 @@ class Script(commands.Cog):
 
         pack_names = [row[0] for row in rows]
         pack_descriptions = [row[10] for row in rows]
+        pack_costs = [row[1] for row in rows]
         select_options = [
-            discord.SelectOption(label=name, value=name, description=description)
+            discord.SelectOption(
+                label=f"{name} - {cost} cash", value=name, description=description
+            )
             for (
                 name,
                 description,
-            ) in list(zip(pack_names, pack_descriptions))
+                cost,
+            ) in list(zip(pack_names, pack_descriptions, pack_costs))
         ] + [discord.SelectOption(label="Cancel", value="Cancel Pack")]
 
         select_menu = discord.ui.Select(options=select_options, custom_id="packs")
@@ -373,12 +381,14 @@ class Script(commands.Cog):
         # make a select menu of available packs
         voucher_names = [row[3] for row in rows]
         voucher_descriptions = [row[5] for row in rows]
+        voucher_costs = [row[0] for row in rows]
         select_options = [
-            discord.SelectOption(label=name, value=name, description=description)
-            for (
-                name,
-                description,
-            ) in list(zip(voucher_names, voucher_descriptions))
+            discord.SelectOption(
+                label=f"{name} - {cost} vouchers", value=name, description=description
+            )
+            for (name, description, cost) in list(
+                zip(voucher_names, voucher_descriptions, voucher_costs)
+            )
         ] + [discord.SelectOption(label="Cancel", value="Cancel Voucher")]
         select_menu = discord.ui.Select(
             options=select_options, custom_id="voucherrewards"
@@ -470,6 +480,16 @@ class Script(commands.Cog):
             f"I can give you {cash_rewarded} cash today... OR YOU CAN DOUBLE IT IF YOU ANSWER THE FOLLOWING QUESTION CORRECTLY!!!"
         )
         await ctx.channel.send(f"**{question}**", view=view)
+
+    # trade with others! basic way this works is switching ids of card owner in database/giving and subtracting coins and vouchers
+    @commands.command()
+    async def trade(self, ctx, partner):
+        async def offer_callback(interaction):
+            pass
+
+        conn = sqlite3.connect("cards.db")
+        cursor = conn.execute("SELECT")
+        select_options = []
 
 
 # setup cog/connection of this file to main.py
