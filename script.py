@@ -328,8 +328,9 @@ class Script(commands.Cog):
                 return
 
             # give reward to user
-            reward_id = rows[0][1]
-            cash_rewarded = rows[0][4]
+            reward_row = [row for row in rows if row[3] == name][0]
+            reward_id = reward_row[1]
+            cash_rewarded = reward_row[4]
             if reward_id == -1:
                 conn.execute(
                     f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
