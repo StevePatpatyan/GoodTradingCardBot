@@ -67,7 +67,6 @@ class Script(commands.Cog):
                     file=discord.File(images[int(message.content) - 1])
                 )
         except TimeoutError:
-            await ctx.channel.send("Timeout for choice...")
             return
 
     @commands.command()
@@ -303,7 +302,7 @@ class Script(commands.Cog):
             # get specified voucher reward info, check reward exists and if it's available
             conn = sqlite3.connect("cards.db")
             cursor = conn.execute(
-                "SELECT * FROM VoucherRewards WHERE name = ?", (select_menu.values,)
+                "SELECT * FROM VoucherRewards WHERE name = ?", (select_menu.values[0],)
             )
             rows = cursor.fetchall()
             conn.close()
@@ -626,7 +625,7 @@ class Script(commands.Cog):
                         )
                         return
                 except TimeoutError:
-                    await ctx.channel.send("Timeout for choice...")
+                    await ctx.channel.send(f"<@{partner_id}> timeout for choice...")
                     return
 
             ######################## initial callback ##############################
