@@ -226,9 +226,7 @@ class Script(commands.Cog):
                             # send image of card to show off if mythical
                             if drop == "MYTHICAL PULL":
                                 image = rows[0][3]
-                                await interaction.response.edit_message(
-                                    file=discord.File(image)
-                                )
+                                await ctx.channel.send(file=discord.File(image))
                             helper.add_card(ctx.author.id, reward_id)
                     break
                 else:
