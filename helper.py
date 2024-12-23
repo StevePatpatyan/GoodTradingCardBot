@@ -27,7 +27,7 @@ def add_card(user_id, card_id):
         raise CardNotFoundError
     next_number = rows[0][0]
     total = rows[0][1]
-    if next_number > total:
+    if total != None and next_number > total:
         raise TotalCardsExceededError
     conn.execute(
         "INSERT INTO Cards VALUES(NULL, ?, ?, ?)",

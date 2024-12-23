@@ -100,7 +100,7 @@ class Script(commands.Cog):
     @commands.command()
     async def openpack(self, ctx):
         # when function runs, user confirmed choice by selecting dropdown menu option
-        async def callback(interaction):
+        async def callback(interaction, view):
             # check if person who interacted is the one who invoked open pack (so that someone doesn't open a pack for someone else)
             if interaction.user != ctx.author:
                 await interaction.response.send_message(
@@ -138,10 +138,11 @@ class Script(commands.Cog):
                 conn.commit()
             except helper.NotEnoughCashError:
                 await interaction.response.edit_message(
-                    content="You do not have enough cash...", view=None
+                    content="You do not have enough cash...", view=view
                 )
                 conn.close()
                 return
+            name = rows[0][0]
             common_id = rows[0][2]
             uncommon_id = rows[0][3]
             rare_id = rows[0][4]
@@ -166,16 +167,21 @@ class Script(commands.Cog):
 
             # roll 0 or 1 every time. if 1, move on to next rarity. if 0, stop and get rarity it was on
             for drop, reward_id in rewards.items():
-                if random.choice(range(11)) > 5 or drop == "MYTHICAL PULL":
-                    if reward_id == -1:
+                if random.choice(range(11)) <= 5 or drop == "MYTHICAL PULL":
+                    if reward_id == 0:
+                        await interaction.response.edit_message(
+                            content=f"<@{ctx.author.id}> you pulled the {drop} from the {name} and got nothing...",
+                            view=view,
+                        )
+                    elif reward_id == -1:
                         cash_rewarded = cash_base * multiplier
                         conn.execute(
                             f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
                             (ctx.author.id,),
                         )
                         await interaction.response.edit_message(
-                            content=f"<@{ctx.author.id}> you pulled the {drop} and got {cash_rewarded} cash!",
-                            view=None,
+                            content=f"<@{ctx.author.id}> you pulled the {drop} from the {name} and got {cash_rewarded} cash!",
+                            view=view,
                         )
                     elif reward_id == -2:
                         vouchers_rewarded = voucher_base * multiplier
@@ -184,8 +190,8 @@ class Script(commands.Cog):
                             (ctx.author.id,),
                         )
                         await interaction.response.edit_message(
-                            content=f"<@{ctx.author.id}> you pulled the {drop} and got {vouchers_rewarded} vouchers!",
-                            view=None,
+                            content=f"<@{ctx.author.id}> you pulled the {drop} from the {name} and got {vouchers_rewarded} vouchers!",
+                            view=view,
                         )
                     else:
                         cursor = conn.execute(
@@ -198,35 +204,35 @@ class Script(commands.Cog):
                         card_name = rows[0][0]
                         # reward cash or vouchers if there are no more cards to give
                         if next_number > total:
-                            mythical_cash_multiplier = 12
-                            mythical_voucher_multiplier = multiplier
+                            replacement_cash_multiplier = 12
+                            replacement_voucher_multiplier = multiplier
                             cash_andor_vouchers = "v"
                             if "c" in cash_andor_vouchers:
-                                cash_rewarded = cash_base * mythical_cash_multiplier
+                                cash_rewarded = cash_base * replacement_cash_multiplier
                                 conn.execute(
                                     f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
                                     (ctx.author.id,),
                                 )
                                 await interaction.response.edit_message(
-                                    content=f"<@{ctx.author.id}> you pulled the {drop}! There are no more {card_name} cards available so you got {cash_rewarded} cash instead.",
-                                    view=None,
+                                    content=f"<@{ctx.author.id}> you pulled the {drop} from the {name}! There are no more {card_name} cards available so you got {cash_rewarded} cash instead.",
+                                    view=view,
                                 )
                             if "v" in cash_andor_vouchers:
                                 vouchers_rewarded = (
-                                    voucher_base * mythical_voucher_multiplier
+                                    voucher_base * replacement_voucher_multiplier
                                 )
                                 conn.execute(
                                     f"UPDATE Users SET vouchers = vouchers + {vouchers_rewarded} WHERE id = ?",
                                     (ctx.author.id,),
                                 )
                                 await interaction.response.edit_message(
-                                    content=f"<@{ctx.author.id}> you pulled the {drop}! There are no more {card_name} cards available so you got {vouchers_rewarded} vouchers instead.",
-                                    view=None,
+                                    content=f"<@{ctx.author.id}> you pulled the {drop} from the {name}! There are no more {card_name} cards available so you got {vouchers_rewarded} vouchers instead.",
+                                    view=view,
                                 )
                         else:
                             await interaction.response.edit_message(
-                                content=f"<@{ctx.author.id}> you pulled the {drop} and got {card_name}!",
-                                view=None,
+                                content=f"<@{ctx.author.id}> you pulled the {drop} from the {name} and got {card_name}!",
+                                view=view,
                             )
                             # send image of card to show off if mythical
                             if drop == "MYTHICAL PULL":
@@ -262,9 +268,9 @@ class Script(commands.Cog):
         ] + [discord.SelectOption(label="Cancel", value="Cancel Pack")]
 
         select_menu = discord.ui.Select(options=select_options, custom_id="packs")
-        select_menu.callback = callback
         view = discord.ui.View(timeout=60)
         view.add_item(select_menu)
+        select_menu.callback = lambda interaction: callback(interaction, view)
         await ctx.channel.send("Select a pack to open.", view=view)
         return
 
@@ -292,7 +298,7 @@ class Script(commands.Cog):
     @commands.command()
     async def usevouchers(self, ctx):
         # at this point, user selected choice
-        async def callback(interaction):
+        async def callback(interaction, view):
             # check if person who interacted is the one who invoked voucher claim (so that someone doesn't open a pack for someone else)
             if interaction.user != ctx.author:
                 await interaction.response.send_message(
@@ -331,7 +337,7 @@ class Script(commands.Cog):
                 conn.commit()
             except helper.NotEnoughCashError:
                 await interaction.response.edit_message(
-                    content="You do not have enough vouchers...", view=None
+                    content="You do not have enough vouchers...", view=view
                 )
                 conn.close()
                 return
@@ -346,7 +352,7 @@ class Script(commands.Cog):
                 )
                 await interaction.response.edit_message(
                     content=f"<@{ctx.author.id}> you claimed the {name} voucher and got {cash_rewarded} cash!",
-                    view=None,
+                    view=view,
                 )
             else:
                 helper.add_card(ctx.author.id, reward_id)
@@ -360,7 +366,7 @@ class Script(commands.Cog):
                 total = rows[0][1]
                 await interaction.response.edit_message(
                     content=f"<@{ctx.author.id}> you claimed the {name} voucher and got {card_name}!",
-                    view=None,
+                    view=view,
                 )
                 # if card ran out, set as unavailable
                 if next_number > total:
@@ -368,8 +374,8 @@ class Script(commands.Cog):
                         "UPDATE VoucherRewards SET available = 0 WHERE name = ?",
                         (name,),
                     )
-                    await interaction.response.edit_message(
-                        content="There are no more of this card available...", view=None
+                    await ctx.channel.send(
+                        "There are no more of this card available..."
                     )
             conn.commit()
             conn.close()
@@ -395,9 +401,9 @@ class Script(commands.Cog):
         select_menu = discord.ui.Select(
             options=select_options, custom_id="voucherrewards"
         )
-        select_menu.callback = callback
         view = discord.ui.View(timeout=60)
         view.add_item(select_menu)
+        select_menu.callback = lambda interaction: callback(interaction, view)
         await ctx.channel.send("Select a voucher reward to open.", view=view)
         return
 
