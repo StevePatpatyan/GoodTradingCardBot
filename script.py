@@ -13,6 +13,33 @@ class Script(commands.Cog):
 
     @commands.command()
     async def viewmycards(self, ctx):
+        async def callback(interaction, view):
+            if interaction.user != ctx.author:
+                await interaction.response.send_message(
+                    f"<@{interaction.user.id}> this is not your card viewing window..."
+                )
+                return
+            if select_menu.values[0] == "Cancel":
+                await interaction.response.edit_message(
+                    content="Cancelled viewing...", view=None
+                )
+                return
+            # get users card image that they choose to display
+            conn = sqlite3.connect("cards.db")
+            card_name = select_menu.values[0].split("~")[0]
+            cursor = conn.execute(
+                "SELECT image FROM CardsGeneral WHERE name = ?", (card_name,)
+            )
+            rows = cursor.fetchall()
+            image = rows[0][0]
+            conn.close()
+            # display card image
+            embed = discord.Embed()
+            await interaction.response.edit_message(
+                attachments=[discord.File(image)], view=view
+            )
+            return
+
         # get users card names and numbers out of total cards
         id = ctx.author.id
         conn = sqlite3.connect("cards.db")
@@ -29,45 +56,34 @@ class Script(commands.Cog):
         totals = []
         for general in general_ids:
             cursor = conn.execute(
-                "SELECT name,image,total FROM CardsGeneral WHERE id = ?", (general,)
+                "SELECT name,total FROM CardsGeneral WHERE id = ?", (general,)
             )
             rows = cursor.fetchall()
             names = names + [row[0] for row in rows]
-            images = images + [row[1] for row in rows]
-            totals = totals + [row[2] for row in rows]
+            totals = totals + [row[1] for row in rows]
         conn.close()
-        # display list of card names and numbers
-        for idx in range(len(names)):
-            if not totals[idx]:
-                await ctx.channel.send(f"{idx + 1}. {names[idx]} --> {numbers[idx]}")
-            else:
-                await ctx.channel.send(
-                    f"{idx + 1}. {names[idx]} --> {numbers[idx]} of {totals[idx]}"
-                )
+        totals = ["N/A" if total == None else total for total in totals]
+        # make a select menu of user cards plus an option to cancel
 
-        # allow to see one of the cards (image)
-        await ctx.channel.send(
-            'Select the number of a card you want to see. If you don\'t want to see a card, type "q"'
-        )
-        try:
-            message = await self.bot.wait_for(
-                "message",
-                check=lambda m: m.content.isdigit()
-                and int(m.content) > 0
-                and int(m.content) <= len(names)
-                and m.author.id == ctx.author.id
-                or m.content == "q"
-                and m.author.id == ctx.author.id,
-                timeout=60,
+        select_options = [
+            discord.SelectOption(
+                label=name,
+                value=f"{name}~{number}",
+                description=f"Card Number: {number} || Total of this Card: {total}",
             )
-            if message.content == "q":
-                return
-            else:
-                await ctx.channel.send(
-                    file=discord.File(images[int(message.content) - 1])
-                )
-        except TimeoutError:
-            return
+            for (
+                name,
+                number,
+                total,
+            ) in list(zip(names, numbers, totals))
+        ] + [discord.SelectOption(label="Cancel", value="Cancel")]
+
+        select_menu = discord.ui.Select(options=select_options, custom_id="mycards")
+        view = discord.ui.View(timeout=60)
+        view.add_item(select_menu)
+        select_menu.callback = lambda interaction: callback(interaction, view)
+        await ctx.channel.send("Select a card to view.", view=view)
+        return
 
     @commands.command()
     async def viewcard(self, ctx, card_id):
@@ -159,8 +175,9 @@ class Script(commands.Cog):
                 "MYTHICAL PULL": mythical_id,
             }
 
-            # coin/vouchers multiplier depending on number of rolls / rarity (if reward for that rarity is coins)
-            multiplier = 1
+            # coin/vouchers multiplier depending on number of rolls / rarity (if reward for that rarity is coins/vouchers)
+            cash_multiplier = 1
+            voucher_multiplier = 1
 
             # base number to multiply by (cash_base pulled from pack-specific data above)
             voucher_base = 1
@@ -174,7 +191,7 @@ class Script(commands.Cog):
                             view=view,
                         )
                     elif reward_id == -1:
-                        cash_rewarded = cash_base * multiplier
+                        cash_rewarded = cash_base * cash_multiplier
                         conn.execute(
                             f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
                             (ctx.author.id,),
@@ -184,7 +201,7 @@ class Script(commands.Cog):
                             view=view,
                         )
                     elif reward_id == -2:
-                        vouchers_rewarded = voucher_base * multiplier
+                        vouchers_rewarded = voucher_base * voucher_multiplier
                         conn.execute(
                             f"UPDATE Users SET vouchers = vouchers + {vouchers_rewarded} WHERE id = ?",
                             (ctx.author.id,),
@@ -204,11 +221,9 @@ class Script(commands.Cog):
                         card_name = rows[0][0]
                         # reward cash or vouchers if there are no more cards to give
                         if next_number > total:
-                            replacement_cash_multiplier = 12
-                            replacement_voucher_multiplier = multiplier
                             cash_andor_vouchers = "v"
                             if "c" in cash_andor_vouchers:
-                                cash_rewarded = cash_base * replacement_cash_multiplier
+                                cash_rewarded = cash_base * cash_multiplier
                                 conn.execute(
                                     f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
                                     (ctx.author.id,),
@@ -218,9 +233,7 @@ class Script(commands.Cog):
                                     view=view,
                                 )
                             if "v" in cash_andor_vouchers:
-                                vouchers_rewarded = (
-                                    voucher_base * replacement_voucher_multiplier
-                                )
+                                vouchers_rewarded = voucher_base * voucher_multiplier
                                 conn.execute(
                                     f"UPDATE Users SET vouchers = vouchers + {vouchers_rewarded} WHERE id = ?",
                                     (ctx.author.id,),
@@ -241,7 +254,8 @@ class Script(commands.Cog):
                             helper.add_card(ctx.author.id, reward_id)
                     break
                 else:
-                    multiplier += 1
+                    cash_multiplier *= 2
+                    voucher_multiplier += 1
             conn.commit()
             conn.close()
 
@@ -499,7 +513,7 @@ class Script(commands.Cog):
                 # make sure interactor is command invoker
                 if interaction.user != ctx.author:
                     await interaction.response.send_message(
-                        f"<@{interaction.user.id} this is not your trade window..."
+                        f"<@{interaction.user.id}> this is not your trade window..."
                     )
                     return
                 if "Cancel" in partner_select_menu.values:
@@ -637,7 +651,7 @@ class Script(commands.Cog):
             ######################## initial callback ##############################
             if interaction.user != ctx.author:
                 await interaction.response.send_message(
-                    f"<@{interaction.user.id} this is not your trade window..."
+                    f"<@{interaction.user.id}> this is not your trade window..."
                 )
                 return
             if "Cancel" in init_select_menu.values:
