@@ -11,8 +11,14 @@ class Script(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # format of parameter should be @user or "all" to view all cards in game
     @commands.command()
-    async def viewmycards(self, ctx):
+    async def viewcards(self, ctx, user):
+        # check if input is valid
+        if user != "all" and not user[2:-1].isdigit():
+            await ctx.channel.send("Invalid input...")
+            return
+
         async def callback(interaction, view):
             if interaction.user != ctx.author:
                 await interaction.response.send_message(
@@ -40,19 +46,27 @@ class Script(commands.Cog):
             )
             return
 
-        # get users card names and numbers out of total cards
-        id = ctx.author.id
+        # get users card names
         conn = sqlite3.connect("cards.db")
-        cursor = conn.execute(
-            "SELECT number,general_id FROM Cards WHERE owner_id = ?", (id,)
-        )
+        if user == "all":
+            cursor = conn.execute("SELECT general_id FROM Cards")
+        else:
+            id = int(user[2:-1])
+            cursor = conn.execute(
+                "SELECT general_id FROM Cards WHERE owner_id = ?", (id,)
+            )
         rows = cursor.fetchall()
-        general_ids = [row[1] for row in rows]
-        numbers = [row[0] for row in rows]
+        # check if there are cards associated with the id
+        if len(rows) == 0:
+            await ctx.channel.send(
+                "Either this user has no cards or is not in the database..."
+            )
+            return
 
-        # get card names, total, and image of card from general database here
+        general_ids = set([row[0] for row in rows])
+
+        # get card name and total of card from general database here
         names = []
-        images = []
         totals = []
         for general in general_ids:
             cursor = conn.execute(
@@ -68,48 +82,34 @@ class Script(commands.Cog):
         select_options = [
             discord.SelectOption(
                 label=name,
-                value=f"{name}~{number}",
-                description=f"Card Number: {number} || Total of this Card: {total}",
+                value=name,
+                description=f"Total of this Card: {total}",
             )
             for (
                 name,
-                number,
                 total,
-            ) in list(zip(names, numbers, totals))
+            ) in list(zip(names, totals))
         ] + [discord.SelectOption(label="Cancel", value="Cancel")]
-
-        select_menu = discord.ui.Select(options=select_options, custom_id="mycards")
-        view = discord.ui.View(timeout=60)
-        view.add_item(select_menu)
-        select_menu.callback = lambda interaction: callback(interaction, view)
-        await ctx.channel.send("Select a card to view.", view=view)
-        return
-
-    @commands.command()
-    async def viewcard(self, ctx, card_id):
-        # view general card name, total, and image based on id in database
-        conn = sqlite3.connect("cards.db")
-        cursor = conn.execute(
-            "SELECT name,image,total FROM CardsGeneral WHERE id = ?",
-            (int(card_id),),
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        # card does not exist
-        if len(rows) == 0:
-            await ctx.channel.send("No such card...")
-            return
-        else:
-            info = rows[0]
-            await ctx.channel.send(file=discord.File(info[1]))
-            if info[2]:
-                await ctx.channel.send(
-                    f"{info[0]}. There are {info[2]} total of this card out there!"
-                )
+        views = []
+        select_menus = []
+        for idx in range(0, len(select_options), 25):
+            if len(select_options) - idx >= 25:
+                select_menu = discord.ui.Select(options=select_options[idx : idx + 25])
             else:
-                await ctx.channel.send(
-                    f"{info[0]}. This card's population can still be increased!"
+                select_menu = discord.ui.Select(
+                    options=select_options[idx : len(select_options)]
                 )
+            select_menu.callback = lambda interaction: callback(interaction, view)
+            select_menus.append(select_menu)
+        for menu in select_menus:
+            view = discord.ui.View(timeout=120)
+            view.add_item(menu)
+            views.append(view)
+
+        await ctx.channel.send("Select a card to view.")
+        for view in views:
+            await ctx.channel.send(view=view)
+        return
 
     # this command takes in a name after the command name in Discord, then asks user if they want to buy pack.
     # it uses the ids of cards to assign rewards. The code uses -1 for coins and -2 for vouchers, which I intend to use as a voucher system for claiming event cards
@@ -183,8 +183,10 @@ class Script(commands.Cog):
             voucher_base = 1
 
             # roll 0 or 1 every time. if 1, move on to next rarity. if 0, stop and get rarity it was on
+            # decrease odds of next roll every iteration (to balance odds)
+            rolls = 11
             for drop, reward_id in rewards.items():
-                if random.choice(range(11)) <= 5 or drop == "MYTHICAL PULL":
+                if random.choice(range(rolls)) <= 5 or drop == "MYTHICAL PULL":
                     if reward_id == 0:
                         await interaction.response.edit_message(
                             content=f"<@{ctx.author.id}> you pulled the {drop} from the {name} and got nothing...",
@@ -256,6 +258,7 @@ class Script(commands.Cog):
                 else:
                     cash_multiplier *= 2
                     voucher_multiplier += 1
+                    rolls += 1
             conn.commit()
             conn.close()
 
@@ -507,293 +510,19 @@ class Script(commands.Cog):
     # input is @user
     @commands.command()
     async def trade(self, ctx, partner):
-        async def init_callback(interaction, partner):
-            # the final callback function, which asks initiator of trade to choose what they want from the partner, and complete the trade/timeout
-            async def partner_callback(interaction, init_values, offers):
-                # make sure interactor is command invoker
-                if interaction.user != ctx.author:
-                    await interaction.response.send_message(
-                        f"<@{interaction.user.id}> this is not your trade window..."
-                    )
-                    return
-                if "Cancel" in partner_select_menu.values:
-                    await interaction.response.edit_message(
-                        content="Trade cancelled...", view=None
-                    )
-                    return
-                partner_id = int(partner[2:-1])
-
-                # check if the user wants cash, vouchers, card, or canceled the trade
-                proposals = []
-                conn = sqlite3.connect("cards.db")
-                for value in partner_select_menu.values:
-                    if value == "cash" or value == "vouchers":
-                        amount = conn.execute(
-                            f"SELECT {value} FROM Users WHERE id = ?",
-                            (partner_id,),
-                        ).fetchall()[0][0]
-                        try:
-                            # make sure it is first interaction message, since it can only respond once (first time will be when cash or vouchers amount is asked for)
-                            if (
-                                "cash"
-                                in partner_select_menu.values[
-                                    : partner_select_menu.values.index(value)
-                                ]
-                                or "vouchers"
-                                in partner_select_menu.values[
-                                    : partner_select_menu.values.index(value)
-                                ]
-                            ):
-                                await ctx.channel.send(
-                                    content=f"How much {value.lower()} do you propose?",
-                                    view=None,
-                                )
-                            else:
-                                await interaction.response.edit_message(
-                                    content=f"How much {value.lower()} do you propose?",
-                                    view=None,
-                                )
-                            proposal = await self.bot.wait_for(
-                                "message",
-                                check=lambda m: m.author == ctx.author
-                                and m.content.isdigit()
-                                and int(m.content) >= 0,
-                                timeout=60,
-                            )
-                            if int(proposal.content) > amount:
-                                raise helper.NotEnoughCashError
-                        except helper.NotEnoughCashError:
-                            await interaction.response.edit_message(
-                                content=f"This person does not have enough {init_select_menu.values[0].lower()} to offer that much... closing trade...",
-                                view=None,
-                            )
-                            conn.close()
-                            return
-                        except TimeoutError:
-                            await interaction.response.edit_message(
-                                content="Timeout for choice...", view=None
-                            )
-                            conn.close()
-                            return
-                        proposals.append(f"{proposal.content} {value}")
-                    # user offered card, decrypt the value into a structured part for the trade message
-                    else:
-                        proposal = " --> ".join(value.split("~"))
-                        proposals.append(proposal)
-                conn.close()
-                # construct the trade message
-                # make sure it is first interaction message, since it can only respond once (first time will be when cash or vouchers amount is asked for)
-                if (
-                    "cash" in partner_select_menu.values
-                    or "vouchers" in partner_select_menu.values
-                ):
-                    await ctx.channel.send(
-                        f"<@{partner_id}> <@{ctx.author.id}> is offering the following:"
-                    )
-                else:
-                    await interaction.response.edit_message(
-                        content=f"<@{partner_id}> <@{ctx.author.id}> is offering the following:",
-                        view=None,
-                    )
-                for offer in offers:
-                    await ctx.channel.send(offer)
-                await ctx.channel.send("...and is asking of you the following:")
-                for proposal in proposals:
-                    await ctx.channel.send(proposal)
-                try:
-                    await ctx.channel.send("Do you accept or decline? (y/n)")
-                    response = await self.bot.wait_for(
-                        "message",
-                        check=lambda m: m.author.id == partner_id
-                        and m.content.lower() == "y"
-                        or m.author.id == partner_id
-                        and m.content.lower() == "n",
-                        timeout=120,
-                    )
-                    # exchange contents
-                    if response.content.lower() == "y":
-                        await ctx.channel.send("Please wait...")
-                        for value, offer in list(zip(init_values, offers)):
-                            if value == "cash" or value == "vouchers":
-                                amount = int(offer.split(" ")[0])
-                                helper.transfer(
-                                    value, value, ctx.author.id, partner_id, amount
-                                )
-                            else:
-                                helper.transfer(
-                                    "card", value, ctx.author.id, partner_id
-                                )
-
-                        for value, proposals in list(
-                            zip(partner_select_menu.values, proposals)
-                        ):
-                            if value == "cash" or value == "vouchers":
-                                amount = proposal.split(" ")[0]
-                                helper.transfer(
-                                    value, value, partner_id, ctx.author.id, amount
-                                )
-                            else:
-                                helper.transfer(
-                                    "card", value, partner_id, ctx.author.id
-                                )
-                        await ctx.channel.send(
-                            f"<@{partner_id}> accepted <@{ctx.author.id}>'s trade!"
-                        )
-                    else:
-                        await ctx.channel.send(
-                            f"<@{partner_id}> respectfully declined <@{ctx.author.id}>'s trade..."
-                        )
-                        return
-                except TimeoutError:
-                    await ctx.channel.send(f"<@{partner_id}> timeout for choice...")
-                    return
-
-            ######################## initial callback ##############################
-            if interaction.user != ctx.author:
-                await interaction.response.send_message(
-                    f"<@{interaction.user.id}> this is not your trade window..."
-                )
-                return
-            if "Cancel" in init_select_menu.values:
-                await interaction.response.edit_message(
-                    content="Trade cancelled...", view=None
-                )
-                return
-            # make select menu for partner's cards
-            partner_id = partner[2:-1]
-            partner_id = int(partner_id)
-            conn = sqlite3.connect("cards.db")
-            # check if user is in database
-            if (
-                len(
-                    conn.execute(
-                        "SELECT id FROM Users WHERE id = ?", (partner_id,)
-                    ).fetchall()
-                )
-                == 0
-            ):
-                await ctx.channel.send("This user is not in the database...")
-                conn.close()
-                return
-            cursor = conn.execute(
-                "SELECT general_id,number FROM Cards WHERE owner_id = ?", (partner_id,)
-            )
-            rows = cursor.fetchall()
-            general_ids = [row[0] for row in rows]
-            numbers = [row[1] for row in rows]
-            names = [
-                conn.execute(
-                    "SELECT name FROM CardsGeneral WHERE id = ?", (general_id,)
-                ).fetchall()[0][0]
-                for general_id in general_ids
-            ]
-            partner_select_options = [
-                discord.SelectOption(
-                    label=name,
-                    description=f"Card number: {number} out of total",
-                    value=f"{name}~#{number} out of total",
-                )
-                for (name, number) in list(zip(names, numbers))
-            ] + [
-                discord.SelectOption(label="Cash", value="cash"),
-                discord.SelectOption(label="Vouchers", value="vouchers"),
-                discord.SelectOption(label="Cancel Trade", value="Cancel"),
-            ]
-            partner_select_menu = discord.ui.Select(
-                options=partner_select_options,
-                custom_id="partnertrade",
-                max_values=len(partner_select_options),
-            )
-            partner_view = discord.ui.View(timeout=60)
-            partner_view.add_item(partner_select_menu)
-            # check if the user offered cash, vouchers, card, or canceled the trade
-            offers = []
-            conn = sqlite3.connect("cards.db")
-            for value in init_select_menu.values:
-                if value == "cash" or value == "vouchers":
-                    amount = conn.execute(
-                        f"SELECT {value} FROM Users WHERE id = ?",
-                        (ctx.author.id,),
-                    ).fetchall()[0][0]
-                    try:
-                        # make sure it is first interaction message, since it can only respond once (first time will be when cash or vouchers amount is asked for)
-                        if (
-                            "cash"
-                            in init_select_menu.values[
-                                : init_select_menu.values.index(value)
-                            ]
-                            or "vouchers"
-                            in init_select_menu.values[
-                                : init_select_menu.values.index(value)
-                            ]
-                        ):
-                            await ctx.channel.send(
-                                content=f"How much {value.lower()} are you offering?",
-                                view=None,
-                            )
-                        else:
-                            await interaction.response.edit_message(
-                                content=f"How much {value.lower()} are you offering?",
-                                view=None,
-                            )
-                        offer = await self.bot.wait_for(
-                            "message",
-                            check=lambda m: m.author == ctx.author
-                            and m.content.isdigit()
-                            and int(m.content) >= 0,
-                            timeout=60,
-                        )
-                        if int(offer.content) > amount:
-                            raise helper.NotEnoughCashError
-                    except helper.NotEnoughCashError:
-                        await interaction.response.edit_message(
-                            content=f"You do not have enough {value.lower()} to offer that much... closing trade...",
-                            view=None,
-                        )
-                        conn.close()
-                        return
-                    except TimeoutError:
-                        await interaction.response.edit_message(
-                            content="Timeout for choice...", view=None
-                        )
-                        conn.close()
-                        return
-                    offers.append(f"{offer.content} {value}")
-                # user offered a card, decrypt so that it makes sense in the trade message
-                else:
-                    offer = " --> ".join(value.split("~"))
-                    offers.append(offer)
-            conn.close()
-            partner_select_menu.callback = lambda interaction: partner_callback(
-                interaction, init_select_menu.values, offers
-            )
-            # make sure it is first interaction message, since it can only respond once (first time will be when cash or vouchers amount is asked for)
-            if (
-                "cash" in init_select_menu.values
-                or "vouchers" in init_select_menu.values
-            ):
-                await ctx.channel.send(
-                    "What would you like from the other person?", view=partner_view
-                )
-            else:
-                await interaction.response.edit_message(
-                    content="What would you like from the other person?",
-                    view=partner_view,
-                )
-
         ################## trade function #####################################
         # check if input was @user format
         partner_id = partner[2:-1]
         if not partner_id.isdigit():
             await ctx.channel.send("Invalid input...")
             return
-
+        partner_id = int(partner_id)
         # preventing trading with self
         if int(partner_id) == ctx.author.id:
             await ctx.channel.send("You can't trade with yourself, silly...")
             return
 
-        # create select menus for invoker/initiator's cards
+        # get names and numbers of initiator's cards
         conn = sqlite3.connect("cards.db")
         cursor = conn.execute(
             "SELECT general_id,number FROM Cards WHERE owner_id = ?", (ctx.author.id,)
@@ -808,35 +537,401 @@ class Script(commands.Cog):
             ).fetchall()[0][0]
             for general_id in general_ids
         ]
-        init_select_options = [
-            discord.SelectOption(
-                label=name,
-                description=f"Card number: {number} out of total",
-                value=f"{name}~#{number} out of total",
+        conn.close()
+        cards_info = [
+            (
+                name,
+                general_id,
+                number,
             )
-            for (name, number) in list(zip(names, numbers))
-        ] + [
-            discord.SelectOption(label="Cash", value="cash"),
-            discord.SelectOption(label="Vouchers", value="vouchers"),
-            discord.SelectOption(label="Cancel Trade", value="Cancel"),
+            for name, general_id, number in list(zip(names, general_ids, numbers))
         ]
-        init_select_menu = discord.ui.Select(
-            options=init_select_options,
-            custom_id="inittrade",
-            max_values=len(init_select_options),
-        )
 
-        init_view = discord.ui.View(timeout=60)
-        init_view.add_item(init_select_menu)
-
-        init_select_menu.callback = lambda interaction: init_callback(
-            interaction, partner
-        )
-
+        # initiator chooses cards/cash/vouchers by searching up general_id/number (number optional)
         await ctx.channel.send(
-            "What are you offering?",
-            view=init_view,
+            'Select the cards you are offering by searching up the card ID and EXACT number of card out of total in this format: name:number. For cash or vouchers, use this format: cash/vouchers:amount. If you don\'t care about number, just give name. q to cancel trade. Say "done" when you have put in all your offers.'
         )
+        offered_items = []
+        while True:
+            try:
+                response = await self.bot.wait_for(
+                    "message", check=lambda m: m.author == ctx.author, timeout=60
+                )
+                if response.content.lower() == "q":
+                    await ctx.channel.send("Canceled trade...")
+                    return
+                if response.content.lower() == "done":
+                    break
+                search = response.content.split(":")
+                # check if user is offering cash/vouchers
+                if search[0] == "cash" or search[0] == "vouchers":
+                    if (
+                        len(search) == 1
+                        or not search[1].isdigit()
+                        or int(search[1]) < 0
+                    ):
+                        await ctx.channel.send("Invalid quantity input... try again.")
+                        continue
+                    else:
+                        amount_offered = int(search[1])
+                        conn = sqlite3.connect("cards.db")
+                        user_amount = conn.execute(
+                            f"SELECT {search[0]} FROM Users WHERE id = ?",
+                            (ctx.author.id,),
+                        ).fetchall()[0][0]
+                        if amount_offered > int(user_amount):
+                            await ctx.channel.send(
+                                f"You do not have enough {search[0]} to offer that much... try again."
+                            )
+                            continue
+                        else:
+                            await ctx.channel.send(f"{search[1]} {search[0]}")
+                            await ctx.channel.send("Is this correct? (y/n)")
+                            try:
+                                confirm = await self.bot.wait_for(
+                                    "message",
+                                    check=lambda m: m.author == ctx.author
+                                    and m.content.lower() == "y"
+                                    or m.author == ctx.author
+                                    and m.content.lower() == "n",
+                                    timeout=60,
+                                )
+                                if confirm.content.lower() == "y":
+                                    offered_items.append(search)
+                                    await ctx.channel.send("Item added.")
+                                    continue
+                                # user said no to the confirmation
+                                else:
+                                    await ctx.channel.send(
+                                        "Okay, try searching again or confirm or cancel the trade."
+                                    )
+                                    continue
+                            except TimeoutError:
+                                await ctx.channel.send(
+                                    f"<@{ctx.author.id}> your trade window has timed out..."
+                                )
+                                return
+                searched_id = search[0]
+                searched_number = None
+                ############################### card offer #########################
+                # non-digit id?
+                if not searched_id.isdigit():
+                    await ctx.channel.send(
+                        "Invalid id input... try searching again or confirm or cancel."
+                    )
+                    continue
+                if len(search) > 1:
+                    searched_number = search[1]
+                    # non-digit number?
+                    if not searched_number.isdigit():
+                        await ctx.channel.send(
+                            "Invalid card number input... try searching again or confirm or cancel."
+                        )
+                        continue
+                    searched_number = int(searched_number)
+
+                searched_id = int(searched_id)
+                results = [
+                    (
+                        name,
+                        general_id,
+                        number,
+                    )
+                    for name, general_id, number in cards_info
+                    if searched_id == general_id
+                    and searched_number == number
+                    or searched_id == general_id
+                    and searched_number == None
+                ]
+
+                if len(results) > 0:
+                    result = results[0]
+                    await ctx.channel.send(f"{result[0]} --> #{result[2]} out of total")
+                    await ctx.channel.send(
+                        "Is this the card you are looking for? (y/n)"
+                    )
+                    try:
+                        confirm = await self.bot.wait_for(
+                            "message",
+                            check=lambda m: m.author == ctx.author
+                            and m.content.lower() == "y"
+                            or m.author == ctx.author
+                            and m.content.lower() == "n",
+                            timeout=60,
+                        )
+                        if confirm.content.lower() == "y":
+                            offered_items.append(result)
+                            await ctx.channel.send("Item added.")
+                            continue
+                        # user said no to the searched card found
+                        else:
+                            await ctx.channel.send(
+                                "Okay, try searching again or confirm or cancel the trade."
+                            )
+                            continue
+                    except TimeoutError:
+                        await ctx.channel.send(
+                            f"<@{ctx.author.id} your trade window has timed out..."
+                        )
+                        return
+                # no results
+                else:
+                    await ctx.channel.send(
+                        "No results found... Try searching again or type q to cancel the trade."
+                    )
+                    continue
+            except TimeoutError:
+                await ctx.channel.send(
+                    f"<@{ctx.author.id} your trade window has timed out..."
+                )
+                return
+
+        ############################## get names and numbers of partner's cards #################################
+        conn = sqlite3.connect("cards.db")
+        cursor = conn.execute(
+            "SELECT general_id,number FROM Cards WHERE owner_id = ?", (partner_id,)
+        )
+
+        rows = cursor.fetchall()
+        general_ids = [row[0] for row in rows]
+        numbers = [row[1] for row in rows]
+        names = [
+            conn.execute(
+                "SELECT name FROM CardsGeneral WHERE id = ?", (general_id,)
+            ).fetchall()[0][0]
+            for general_id in general_ids
+        ]
+        conn.close()
+        cards_info = [
+            (
+                name,
+                general_id,
+                number,
+            )
+            for name, general_id, number in list(zip(names, general_ids, numbers))
+        ]
+
+        # initiator chooses cards/cash/vouchers by searching up general_id/number (number optional)
+        await ctx.channel.send(
+            'Select the cards you want by searching up the card ID and EXACT number of card out of total in this format: name:number. For cash or vouchers, use this format: cash/vouchers:amount. If you don\'t care about number, just give name. q to cancel trade. Say "done" when you have put in all your offers.'
+        )
+        desired_items = []
+        while True:
+            try:
+                response = await self.bot.wait_for(
+                    "message", check=lambda m: m.author == ctx.author, timeout=60
+                )
+                if response.content.lower() == "q":
+                    await ctx.channel.send("Canceled trade...")
+                    return
+                if response.content.lower() == "done":
+                    break
+                search = response.content.split(":")
+                # check if user is offering cash/vouchers
+                if search[0] == "cash" or search[0] == "vouchers":
+                    if (
+                        len(search) == 1
+                        or not search[1].isdigit()
+                        or int(search[1]) < 0
+                    ):
+                        await ctx.channel.send("Invalid quantity input... try again.")
+                        continue
+                    else:
+                        amount_offered = int(search[1])
+                        search[1] = amount_offered
+                        conn = sqlite3.connect("cards.db")
+                        user_amount = conn.execute(
+                            f"SELECT {search[0]} FROM Users WHERE id = ?",
+                            (partner_id,),
+                        ).fetchall()[0][0]
+                        if amount_offered > int(user_amount):
+                            await ctx.channel.send(
+                                f"This person does not have enough {search[0]} to offer that much... try again."
+                            )
+                            continue
+                        else:
+                            await ctx.channel.send(f"{search[1]} {search[0]}")
+                            await ctx.channel.send("Is this correct? (y/n)")
+                            try:
+                                confirm = await self.bot.wait_for(
+                                    "message",
+                                    check=lambda m: m.author == ctx.author
+                                    and m.content.lower() == "y"
+                                    or m.author == ctx.author
+                                    and m.content.lower() == "n",
+                                    timeout=60,
+                                )
+                                if confirm.content.lower() == "y":
+                                    desired_items.append(search)
+                                    await ctx.channel.send("Item added.")
+                                    continue
+                                # user said no to the confirmation
+                                else:
+                                    await ctx.channel.send(
+                                        "Okay, try searching again or confirm or cancel the trade."
+                                    )
+                                    continue
+                            except TimeoutError:
+                                await ctx.channel.send(
+                                    f"<@{ctx.author.id} your trade window has timed out..."
+                                )
+                                return
+                ################# card desire #############################
+                searched_id = search[0]
+                searched_number = None
+                # non-digit id?
+                if not searched_id.isdigit():
+                    await ctx.channel.send(
+                        "Invalid id input... try searching again or confirm or cancel."
+                    )
+                    continue
+                if len(search) > 1:
+                    searched_number = search[1]
+                    # non-digit number?
+                    if not searched_number.isdigit():
+                        await ctx.channel.send(
+                            "Invalid card number input... try searching again or confirm or cancel."
+                        )
+                        continue
+                    searched_number = int(searched_number)
+
+                searched_id = int(searched_id)
+                results = [
+                    (
+                        name,
+                        general_id,
+                        number,
+                    )
+                    for name, general_id, number in cards_info
+                    if searched_id == general_id
+                    and searched_number == number
+                    or searched_id == general_id
+                    and searched_number == None
+                ]
+
+                if len(results) > 0:
+                    result = results[0]
+                    await ctx.channel.send(f"{result[0]} --> #{result[2]} out of total")
+                    await ctx.channel.send(
+                        "Is this the card you are looking for? (y/n)"
+                    )
+                    try:
+                        confirm = await self.bot.wait_for(
+                            "message",
+                            check=lambda m: m.author == ctx.author
+                            and m.content.lower() == "y"
+                            or m.author == ctx.author
+                            and m.content.lower() == "n",
+                            timeout=60,
+                        )
+                        if confirm.content.lower() == "y":
+                            desired_items.append(result)
+                            await ctx.channel.send("Item added.")
+                            continue
+                        # user said no to the searched card found
+                        else:
+                            await ctx.channel.send(
+                                "Okay, try searching again or confirm or cancel the trade."
+                            )
+                            continue
+                    except TimeoutError:
+                        await ctx.channel.send(
+                            f"<@{ctx.author.id}> your trade window has timed out..."
+                        )
+                        return
+                # no results
+                else:
+                    await ctx.channel.send(
+                        "No results found... Try searching again or type q to cancel the trade."
+                    )
+                    continue
+            except TimeoutError:
+                await ctx.channel.send(
+                    f"<@{ctx.author.id}> your trade window has timed out..."
+                )
+                return
+        #################################### COMMENCE TRADE ###########################################
+        await ctx.channel.send(
+            f"<@{partner_id}> <@{ctx.author.id}> is proposing a trade!"
+        )
+        await ctx.channel.send("*OFFERING:*")
+        for offer in offered_items:
+            # offer is card
+            if type(offer) == tuple:
+                await ctx.channel.send(
+                    f"- {offer[0]} --> Card number {offer[2]} out of total"
+                )
+            # offer is cash/vouchers
+            else:
+                await ctx.channel.send(f"- {offer[1]} {offer[0]}")
+        await ctx.channel.send("*THEY WANT:*")
+        for desire in desired_items:
+            # offer is card
+            if type(desire) == tuple:
+                await ctx.channel.send(
+                    f"- {desire[0]} --> Card number {desire[2]} out of total"
+                )
+            # offer is cash/vouchers
+            else:
+                await ctx.channel.send(f"- {desire[1]} {desire[0]}")
+
+        # accept or decline #
+        await ctx.channel.send("**Now... the big question is... Y OR N**")
+        try:
+            response = await self.bot.wait_for(
+                "message",
+                check=lambda m: m.author.id == partner_id
+                and m.content.lower() == "y"
+                or m.author.id == partner_id
+                and m.content.lower() == "n",
+                timeout=120,
+            )
+            # if accepting trade, transfer items
+            if response.content.lower() == "y":
+                for offer in offered_items:
+                    # card transfer
+                    if type(offer) == tuple:
+                        helper.transfer(
+                            "card",
+                            ctx.author.id,
+                            partner_id,
+                            name=offer[0],
+                            number=offer[2],
+                        )
+                    # cash/voucher transfer
+                    else:
+                        helper.transfer(
+                            offer[0], ctx.author.id, partner_id, amount=offer[1]
+                        )
+                for desire in desired_items:
+                    # card transfer
+                    if type(desire) == tuple:
+                        helper.transfer(
+                            "card",
+                            partner_id,
+                            ctx.author.id,
+                            name=desire[0],
+                            number=desire[2],
+                        )
+                    # cash/voucher transfer
+                    else:
+                        helper.transfer(
+                            desire[0], partner_id, ctx.author.id, amount=desire[1]
+                        )
+                await ctx.channel.send(
+                    f"<@{ctx.author.id}> <@{partner_id}> BOOOOM. THIS TRADE WAS ACCEPTED!"
+                )
+            # trade declined
+            else:
+                await ctx.channel.send(
+                    f"<@{ctx.author.id}> <@{partner_id}> the trade was not accepted..."
+                )
+        except TimeoutError:
+            await ctx.channel.send(
+                f"<@{ctx.author.id}> <@{partner_id}> this trade timed out..."
+            )
+            return
+        return
 
 
 # setup cog/connection of this file to main.py

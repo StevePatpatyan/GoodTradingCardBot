@@ -3,4 +3,6 @@
 Images
 __pycache__
 cards.db
+cards.db-journal
 personalScript.py
+test.py
