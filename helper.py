@@ -30,7 +30,7 @@ def add_card(user_id, card_id):
     if total != None and next_number > total:
         raise TotalCardsExceededError
     conn.execute(
-        "INSERT INTO Cards VALUES(NULL, ?, ?, ?)",
+        "INSERT INTO Cards VALUES(NULL, ?, ?, ?, 1)",
         (
             card_id,
             next_number,

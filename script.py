@@ -49,7 +49,7 @@ class Script(commands.Cog):
         # get users card names
         conn = sqlite3.connect("cards.db")
         if user == "all":
-            cursor = conn.execute("SELECT general_id FROM Cards")
+            cursor = conn.execute("SELECT id FROM CardsGeneral")
         else:
             id = int(user[2:-1])
             cursor = conn.execute(
@@ -158,6 +158,8 @@ class Script(commands.Cog):
                 )
                 conn.close()
                 return
+            conn.close()
+
             name = rows[0][0]
             common_id = rows[0][2]
             uncommon_id = rows[0][3]
@@ -175,6 +177,7 @@ class Script(commands.Cog):
                 "MYTHICAL PULL": mythical_id,
             }
 
+            conn = sqlite3.connect("cards.db")
             # coin/vouchers multiplier depending on number of rolls / rarity (if reward for that rarity is coins/vouchers)
             cash_multiplier = 1
             voucher_multiplier = 1
@@ -186,7 +189,8 @@ class Script(commands.Cog):
             # decrease odds of next roll every iteration (to balance odds)
             rolls = 11
             for drop, reward_id in rewards.items():
-                if random.choice(range(rolls)) <= 5 or drop == "MYTHICAL PULL":
+                # reward current rarity (else, go next rarity and increase multipliers and rolls)
+                if random.choice(range(rolls)) >= 5 or drop == "MYTHICAL PULL":
                     if reward_id == 0:
                         await interaction.response.edit_message(
                             content=f"<@{ctx.author.id}> you pulled the {drop} from the {name} and got nothing...",
@@ -258,7 +262,7 @@ class Script(commands.Cog):
                 else:
                     cash_multiplier *= 2
                     voucher_multiplier += 1
-                    rolls += 1
+                    rolls += 2
             conn.commit()
             conn.close()
 
@@ -525,7 +529,8 @@ class Script(commands.Cog):
         # get names and numbers of initiator's cards
         conn = sqlite3.connect("cards.db")
         cursor = conn.execute(
-            "SELECT general_id,number FROM Cards WHERE owner_id = ?", (ctx.author.id,)
+            "SELECT general_id,number FROM Cards WHERE owner_id = ? and tradable = 1",
+            (ctx.author.id,),
         )
 
         rows = cursor.fetchall()
@@ -689,7 +694,8 @@ class Script(commands.Cog):
         ############################## get names and numbers of partner's cards #################################
         conn = sqlite3.connect("cards.db")
         cursor = conn.execute(
-            "SELECT general_id,number FROM Cards WHERE owner_id = ?", (partner_id,)
+            "SELECT general_id,number FROM Cards WHERE owner_id = ? and tradable = 1",
+            (partner_id,),
         )
 
         rows = cursor.fetchall()
@@ -932,6 +938,162 @@ class Script(commands.Cog):
             )
             return
         return
+
+    # how many of a certain card a user has
+    @commands.command()
+    async def howmany(self, ctx, card_id):
+        conn = sqlite3.connect("cards.db")
+        cursor = conn.execute(
+            "SELECT general_id from Cards WHERE general_id = ? and owner_id = ?",
+            (
+                card_id,
+                ctx.author.id,
+            ),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        await ctx.channel.send(f"<@{ctx.author.id}> you have {len(rows)} of this card.")
+        return
+
+    @commands.command()
+    # if the user has the cards in a set, they can claim the set reward for free! howeverm the cards they use to claim become untradable/unsellable
+    async def completeset(self, ctx):
+        # callback runs after user chose from dropdown menu
+        async def callback(interaction):
+            # find the sole non-None value (which is the name of the set reward or Cancel for cancel option) inputted from all dropdown menus
+            value = [menu for menu in select_menus if len(menu.values) > 0][0].values[0]
+            if value == "Cancel":
+                await interaction.response.edit_message(
+                    content="Cancelled claim...", view=None
+                )
+                return
+
+            conn = sqlite3.connect("cards.db")
+            # check if user already claimed the set
+            cursor = conn.execute("SELECT id FROM SetRewards WHERE name = ?", (value,))
+            set_id = cursor.fetchall()[0][0]
+            cursor = conn.execute(
+                "SELECT SetsClaimed FROM Users WHERE id = ?", (ctx.author.id,)
+            )
+            sets_claimed = cursor.fetchall()[0][0].split(",")
+            sets_claimed = [int(id) for id in sets_claimed if id.isdigit()]
+            if set_id in sets_claimed:
+                await interaction.response.edit_message(
+                    content="You already claimed this reward...", view=None
+                )
+                conn.close()
+                return
+
+            # get the id of the reward and cards needed to claim
+            cursor = conn.execute(
+                "SELECT reward_id,CardsRequired,quantity FROM SetRewards WHERE name = ?",
+                (value,),
+            )
+            row = cursor.fetchall()[0]
+            reward_id = row[0]
+            cards_required = row[1].split(",")
+            quantity = row[2]
+
+            # ensure user has all cards needed
+            cursor = conn.execute(
+                "SELECT general_id FROM Cards WHERE owner_id = ?", (ctx.author.id,)
+            )
+            general_ids = set([row[0] for row in cursor.fetchall()])
+            conn.close()
+            for card in cards_required:
+                if card.isdigit() and int(card) not in general_ids:
+                    await interaction.response.edit_message(
+                        content="You do not have all the cards required to claim this set reward...",
+                        view=None,
+                    )
+                    return
+            # at this point, user has all cards required, so we can reward
+            conn = sqlite3.connect("cards.db")
+            if reward_id == -1:
+                conn.execute(
+                    f"UPDATE Users SET cash = cash + {quantity} WHERE id = ?",
+                    (ctx.author.id,),
+                )
+                conn.commit()
+                await interaction.response.edit_message(
+                    content=f"Congrats on completing the {value} and receiving {quantity} cash!",
+                    view=None,
+                )
+            elif reward_id == -2:
+                conn = sqlite3.connect("cards.db")
+                conn.execute(
+                    f"UPDATE Users SET vouchers = vouchers + {quantity} WHERE id = ?",
+                    (ctx.author.id,),
+                )
+                conn.commit()
+                await interaction.response.edit_message(
+                    content=f"Congrats on completing the {value} and receiving {quantity} vouchers!",
+                    view=None,
+                )
+            # card reward
+            else:
+                helper.add_card(ctx.author.id, reward_id)
+                conn = sqlite3.connect("cards.db")
+                card_name = conn.execute(
+                    "SELECT name FROM CardsGeneral WHERE id = ?", (reward_id,)
+                ).fetchall()[0][0]
+                await interaction.response.edit_message(
+                    content=f"Congrats on completing the {value} and receiving {card_name}!",
+                    view=None,
+                )
+
+            # finally, change one of the cards they turned in to untradable and mark that they claimed the set
+            for card_id in cards_required:
+                specific_card_id = conn.execute(
+                    "SELECT id FROM Cards WHERE general_id = ? AND owner_id = ?",
+                    (
+                        int(card_id),
+                        ctx.author.id,
+                    ),
+                ).fetchall()[-1][0]
+                conn.execute(
+                    "UPDATE Cards SET tradable = 0 WHERE id = ?", (specific_card_id,)
+                )
+            sets_claimed = ",".join(sets_claimed)
+            sets_claimed += f"{set_id},"
+            conn.execute(
+                "UPDATE Users SET SetsClaimed = ? WHERE id = ?",
+                (
+                    sets_claimed,
+                    ctx.author.id,
+                ),
+            )
+            conn.commit()
+            conn.close()
+            return
+
+        # make select menus for set reward choices
+        conn = sqlite3.connect("cards.db")
+        cursor = conn.execute("SELECT * FROM SetRewards")
+        rows = cursor.fetchall()
+        conn.close()
+        select_options = [
+            discord.SelectOption(label=row[1], value=row[1], description=row[4])
+            for row in rows
+        ] + [discord.SelectOption(label="Cancel", value="Cancel")]
+        views = []
+        select_menus = []
+        for idx in range(0, len(select_options), 25):
+            view = discord.ui.View(timeout=60)
+            select_menu = None
+            if len(select_options) - idx >= 25:
+                select_menu = discord.ui.Select(options=select_options[idx : idx + 25])
+            else:
+                select_menu = discord.ui.Select(
+                    options=select_options[idx : len(select_options)]
+                )
+            select_menu.callback = callback
+            select_menus.append(select_menu)
+            view.add_item(select_menu)
+            views.append(view)
+        await ctx.channel.send("Here are all the set rewards...")
+        for view in views:
+            await ctx.channel.send(view=view)
 
 
 # setup cog/connection of this file to main.py

@@ -14,7 +14,9 @@ async def on_ready():
     print(f"Logged in as {bot.user.name}")
     channel = bot.get_channel(int(os.getenv("STARTUP_CHANNEL_ID")))
     await channel.send("I am up! Here is the recent news for the bot:")
-    await channel.send(os.getenv("NEWS"))
+    news = os.getenv("NEWS").split(",")
+    news = "\n".join([f"- {new}" for new in news])
+    await channel.send(news)
     # Load the command files
     await bot.load_extension("script")
     await bot.load_extension("personalScript")

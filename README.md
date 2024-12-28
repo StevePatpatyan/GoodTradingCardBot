@@ -22,6 +22,7 @@ Cards:
 - general_id: general card id (foreign key of id in CardsGeneral)
 - number: number of the card compared to all of the cards of its type
 - owner_id: discord id of the owner of the card (foreign key of id in Users)
+- tradable: whether or not the card can be traded (0 for no, 1 for yes)
 
 Users:
 
@@ -30,8 +31,9 @@ Users:
 - cash: cash amount of user
 - vouchers: number of vouchers user has
 - LastLogin: last time user has logged in (stored to check if user has already claimed login bonus)
+- SetsClaimed: set rewards that user claimed (as they cannot claim them again). Format is set ids separated by commas
 
-Packs:
+  Packs:
 
 - name: pack name
 - cost: cash cost of pack
@@ -52,7 +54,7 @@ VoucherRewards:
 - available: availability of reward (0 if unavailable, 1 if available)
 - name: name of event that user will type as parameter of useVouchers command
 - CashRewarded: amount of cash voucher gives if reward is cash
-- description of reward
+- description: description of reward
 
 Questions (used for login bonus for now):
 
@@ -62,3 +64,12 @@ Questions (used for login bonus for now):
 - answer3: another answer choice
 - answer4: another answer choice
 - correct: the actual correct answer to the question
+
+SetRewards:
+
+- id: unique id of the set reward
+- name: name of the set reward displayed
+- reward_id: id of the card given (or -1/-2 if cash/vouchers)
+- CardsRequired: card_ids of cards required to claim set reward separated by commas
+- description: description of set reward
+- quantity: amount of cash/vouchers given if that is the reward
