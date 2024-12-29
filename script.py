@@ -188,7 +188,10 @@ class Script(commands.Cog):
             # roll 0 or 1 every time. if 1, move on to next rarity. if 0, stop and get rarity it was on
             # decrease odds of next roll every iteration (to balance odds)
             rolls = 11
-            for drop, reward_id in rewards.items():
+            for drop, reward_ids in rewards.items():
+                # pick a random reward out of the rarity
+                reward_ids = reward_ids.split(",")
+                reward_id = int(random.choice(reward_ids))
                 # reward current rarity (else, go next rarity and increase multipliers and rolls)
                 if random.choice(range(rolls)) >= 5 or drop == "MYTHICAL PULL":
                     if reward_id == 0:
@@ -206,6 +209,8 @@ class Script(commands.Cog):
                             content=f"<@{ctx.author.id}> you pulled the {drop} from the {name} and got {cash_rewarded} cash!",
                             view=view,
                         )
+                        conn.commit()
+                        conn.close()
                     elif reward_id == -2:
                         vouchers_rewarded = voucher_base * voucher_multiplier
                         conn.execute(
@@ -216,55 +221,52 @@ class Script(commands.Cog):
                             content=f"<@{ctx.author.id}> you pulled the {drop} from the {name} and got {vouchers_rewarded} vouchers!",
                             view=view,
                         )
+                        conn.commit()
+                        conn.close()
+                    # card reward
                     else:
                         cursor = conn.execute(
                             "SELECT name,total,NextNumber,image FROM CardsGeneral WHERE id = ?",
                             (reward_id,),
                         )
                         rows = cursor.fetchall()
+                        conn.close()
                         next_number = rows[0][2]
                         total = rows[0][1]
                         card_name = rows[0][0]
-                        # reward cash or vouchers if there are no more cards to give
-                        if next_number > total:
-                            cash_andor_vouchers = "v"
-                            if "c" in cash_andor_vouchers:
-                                cash_rewarded = cash_base * cash_multiplier
+                        # reward cash or vouchers if there are no more cards to give, pick another out of the rarity drop pull or give vouchers
+                        await interaction.response.edit_message(
+                            content=f"<@{ctx.author.id}> you pulled the {drop} from the {name} and got {card_name}!",
+                            view=view,
+                        )
+                        # send image of card to show off if mythical
+                        if drop == "MYTHICAL PULL":
+                            image = rows[0][3]
+                            await ctx.channel.send(file=discord.File(image))
+                        helper.add_card(ctx.author.id, reward_id)
+                        # change reward to voucher if no more cards available in rarity
+                        if total != None and next_number > total:
+                            reward_ids.remove(str(reward_id))
+                            drop_name = drop.title().replace(" ", "")
+                            conn = sqlite3.connect("cards.db")
+                            if len(reward_ids) == 0:
                                 conn.execute(
-                                    f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
-                                    (ctx.author.id,),
+                                    f"UPDATE Packs SET {drop_name} = -2 WHERE name = ?",
+                                    (name,),
                                 )
-                                await interaction.response.edit_message(
-                                    content=f"<@{ctx.author.id}> you pulled the {drop} from the {name}! There are no more {card_name} cards available so you got {cash_rewarded} cash instead.",
-                                    view=view,
-                                )
-                            if "v" in cash_andor_vouchers:
-                                vouchers_rewarded = voucher_base * voucher_multiplier
+                            else:
+                                reward_ids = ",".join(reward_ids)
                                 conn.execute(
-                                    f"UPDATE Users SET vouchers = vouchers + {vouchers_rewarded} WHERE id = ?",
-                                    (ctx.author.id,),
+                                    f"UPDATE Packs SET {drop_name} = {reward_ids} WHERE name = ?",
+                                    (name,),
                                 )
-                                await interaction.response.edit_message(
-                                    content=f"<@{ctx.author.id}> you pulled the {drop} from the {name}! There are no more {card_name} cards available so you got {vouchers_rewarded} vouchers instead.",
-                                    view=view,
-                                )
-                        else:
-                            await interaction.response.edit_message(
-                                content=f"<@{ctx.author.id}> you pulled the {drop} from the {name} and got {card_name}!",
-                                view=view,
-                            )
-                            # send image of card to show off if mythical
-                            if drop == "MYTHICAL PULL":
-                                image = rows[0][3]
-                                await ctx.channel.send(file=discord.File(image))
-                            helper.add_card(ctx.author.id, reward_id)
+                            conn.commit()
+                            conn.close()
                     break
                 else:
                     cash_multiplier *= 2
                     voucher_multiplier += 1
                     rolls += 2
-            conn.commit()
-            conn.close()
 
         # get specified all pack info
         conn = sqlite3.connect("cards.db")
