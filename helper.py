@@ -17,8 +17,11 @@ class PackNotAvailableError(Exception):
     pass
 
 
-def add_card(user_id, card_id):
-    conn = sqlite3.connect("cards.db")
+# handle_connection: whether or not to open, commit, and close the db within the function
+# conn: the sqlite3 connection to the database (not needed if handle_connection is set to True)
+def add_card(user_id, card_id, handle_connection=True, conn=None):
+    if handle_connection:
+        conn = sqlite3.connect("cards.db")
     cursor = conn.execute(
         "SELECT NextNumber,total FROM CardsGeneral WHERE id = ?", (card_id,)
     )
@@ -42,8 +45,9 @@ def add_card(user_id, card_id):
         "UPDATE CardsGeneral SET NextNumber = NextNumber + 1 WHERE id = ?",
         (card_id,),
     )
-    conn.commit()
-    conn.close()
+    if handle_connection:
+        conn.commit()
+        conn.close()
     return
 
 

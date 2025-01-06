@@ -73,3 +73,5 @@ SetRewards:
 - CardsRequired: card_ids of cards required to claim set reward separated by commas
 - description: description of set reward
 - quantity: amount of cash/vouchers given if that is the reward
+
+**NOTE: I may change how odds work between commits. Modify rolls variable in the code and at end of iteration to make your own odds**
