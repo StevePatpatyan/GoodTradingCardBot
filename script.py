@@ -26,6 +26,12 @@ class Script(commands.Cog):
                     f"<@{interaction.user.id}> this is not your card viewing window..."
                 )
                 return
+            # find the select menu in which a value was clicked on
+            select_menu = None
+            for menu in select_menus:
+                for val in menu.values:
+                    if val != None:
+                        select_menu = menu
             if select_menu.values[0] == "Cancel":
                 await interaction.response.edit_message(
                     content="Cancelled viewing...", view=None
@@ -41,16 +47,21 @@ class Script(commands.Cog):
             image = rows[0][0]
             conn.close()
             # display card image
-            embed = discord.Embed()
-            await interaction.response.edit_message(
-                attachments=[discord.File(image)], view=view
-            )
+            if image.split(".")[1] == "gif":
+                await ctx.channel.send(file=discord.File(image), view=view)
+                await interaction.response.edit_message(view=None)
+            else:
+                await interaction.response.edit_message(
+                    attachments=[discord.File(image)], view=view
+                )
             return
 
         # get users card names
         conn = sqlite3.connect("cards.db")
         if user == "all":
-            cursor = conn.execute("SELECT id FROM CardsGeneral")
+            cursor = conn.execute(
+                "SELECT id FROM CardsGeneral WHERE id != -1 AND id != -2"
+            )
         else:
             id = int(user[2:-1])
             cursor = conn.execute(
@@ -100,12 +111,11 @@ class Script(commands.Cog):
                 select_menu = discord.ui.Select(
                     options=select_options[idx : len(select_options)]
                 )
+            view = discord.ui.View(timeout=120)
+            views.append(view)
             select_menu.callback = lambda interaction: callback(interaction, view)
             select_menus.append(select_menu)
-        for menu in select_menus:
-            view = discord.ui.View(timeout=120)
-            view.add_item(menu)
-            views.append(view)
+            view.add_item(select_menu)
 
         await ctx.channel.send("Select a card to view.")
         for view in views:
@@ -115,7 +125,6 @@ class Script(commands.Cog):
     # this command takes in a name after the command name in Discord, then asks user if they want to buy pack.
     # it uses the ids of cards to assign rewards. The code uses -1 for coins and -2 for vouchers, which I intend to use as a voucher system for claiming event cards
     @commands.command()
-    @commands.is_owner()
     async def openpack(self, ctx):
         # when function runs, user confirmed choice by selecting dropdown menu option
         async def callback(interaction, view):
@@ -421,7 +430,7 @@ class Script(commands.Cog):
                     view=view,
                 )
                 # if card ran out, set as unavailable
-                if next_number > total:
+                if total != None and next_number > total:
                     conn.execute(
                         "UPDATE VoucherRewards SET available = 0 WHERE name = ?",
                         (name,),
@@ -1125,6 +1134,27 @@ class Script(commands.Cog):
         await ctx.channel.send("Here are all the set rewards...")
         for view in views:
             await ctx.channel.send(view=view)
+
+    # tip someone
+    @commands.command()
+    async def tip(self, ctx, username, cash):
+        # check if user exists in database
+        conn = sqlite3.connect("cards.db")
+        users = conn.execute(
+            "SELECT * FROM Users WHERE username = ?", (username,)
+        ).fetchall()
+        if len(users) == 0:
+            await ctx.channel.send("No such user...")
+            return
+
+        # transfer cash
+        user_id = conn.execute("SELECT id FROM Users WHERE username = ?", (username,))
+        conn.close()
+        helper.transfer("cash", ctx.author.id, user_id, amount=cash)
+        await ctx.channel.send(
+            f"<@{ctx.author.id}> just tipped <@{user_id}> {cash} cash!!!"
+        )
+        return
 
 
 # setup cog/connection of this file to main.py
