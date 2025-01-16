@@ -1148,7 +1148,9 @@ class Script(commands.Cog):
             return
 
         # transfer cash
-        user_id = conn.execute("SELECT id FROM Users WHERE username = ?", (username,))
+        user_id = conn.execute(
+            "SELECT id FROM Users WHERE username = ?", (username,)
+        ).fetchall()[0][0]
         conn.close()
         helper.transfer("cash", ctx.author.id, user_id, amount=cash)
         await ctx.channel.send(
