@@ -266,7 +266,9 @@ class Script(commands.Cog):
                             # change reward to voucher if no more cards available in rarity
                             if total != None and next_number > total:
                                 all_out.append(f"- {drop} - {card_name}")
-                                reward_ids.remove(str(reward_id))
+                                reward_ids = [
+                                    id for id in reward_ids if id != str(reward_id)
+                                ]
                                 drop_name = drop.title().replace(" ", "")
                                 if len(reward_ids) == 0:
                                     conn.execute(

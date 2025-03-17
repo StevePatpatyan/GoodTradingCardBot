@@ -13,7 +13,7 @@ bot = commands.Bot(command_prefix="$", intents=intents)
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
     channel = bot.get_channel(int(os.getenv("STARTUP_CHANNEL_ID")))
-    await channel.send("I am up! Here is the recent news for the bot:")
+    # await channel.send("I am up! Here is the recent news for the bot:")
     news = os.getenv("NEWS").split(",")
     news = "\n".join([f"- {new}" for new in news])
     await channel.send(news)
