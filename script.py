@@ -6,6 +6,8 @@ import helper
 import random
 from datetime import datetime
 import math
+import dotenv
+import os
 
 
 class Script(commands.Cog):
@@ -263,31 +265,31 @@ class Script(commands.Cog):
                             if drop == "MYTHICAL PULL":
                                 image = rows[0][3]
                                 await ctx.channel.send(file=discord.File(image))
-                            # change reward to voucher if no more cards available in rarity
+                                # Play special video if card is 1 of 1
+                                if total == 1:
+                                    dotenv.load_dotenv()
+                                    pull_vid = os.getenv("PULL_VID")
+                                    await ctx.channel.send(file=pull_vid)
+                            # change reward to voucher if no more of a card available in rarity
                             if total != None and next_number > total:
                                 all_out.append(f"- {drop} - {card_name}")
                                 reward_ids = [
-                                    id for id in reward_ids if id != str(reward_id)
+                                    id if id != str(reward_id) else "-2"
+                                    for id in reward_ids
                                 ]
                                 drop_name = drop.title().replace(" ", "")
-                                if len(reward_ids) == 0:
-                                    conn.execute(
-                                        f"UPDATE Packs SET {drop_name} = -2 WHERE name = ?",
-                                        (name,),
-                                    )
-                                else:
-                                    reward_ids = ",".join(reward_ids)
-                                    conn.execute(
-                                        f"UPDATE Packs SET {drop_name} = {reward_ids} WHERE name = ?",
-                                        (name,),
-                                    )
+                                reward_ids = ",".join(reward_ids)
+                                conn.execute(
+                                    f"UPDATE Packs SET {drop_name} = {reward_ids} WHERE name = ?",
+                                    (name,),
+                                )
                                 # update what you can pull additionally like this so that it also updates within the pack opening without needing an extra commit
                                 rewards[drop] = reward_ids
                         break
                     else:
                         cash_multiplier *= 2
                         voucher_multiplier += 1
-                        rolls = math.ceil(rolls + (rolls - 11) * 2.5)
+                        rolls = math.ceil(rolls + (rolls - 10) * 1.5)
                     # ensure rewrd ids is string so that next iteration is smooth
                     if isinstance(reward_ids, list):
                         reward_ids = ",".join(reward_ids)
@@ -1041,14 +1043,23 @@ class Script(commands.Cog):
                 "SELECT general_id FROM Cards WHERE owner_id = ?", (ctx.author.id,)
             )
             general_ids = set([row[0] for row in cursor.fetchall()])
+            unobtained_cards = []
             conn.close()
             for card in cards_required:
                 if card.isdigit() and int(card) not in general_ids:
-                    await interaction.response.edit_message(
-                        content="You do not have all the cards required to claim this set reward...",
-                        view=None,
+                    unobtained_cards.append(card)
+            if len(unobtained_cards) > 0:
+                await interaction.response.edit_message(
+                    content="You do not have all the cards required to claim this set reward... Here are the cards you're missing",
+                    view=None,
+                )
+                conn = sqlite3.connect("cards.db")
+                for card in unobtained_cards:
+                    name = conn.execute(
+                        "SELECT name FROM CardsGeneral WHERE id = ?", (card)
                     )
-                    return
+                    await ctx.channel.send(f"- {name}")
+                return
             # at this point, user has all cards required, so we can reward
             conn = sqlite3.connect("cards.db")
             if reward_id == -1:
