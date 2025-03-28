@@ -201,6 +201,7 @@ class Script(commands.Cog):
             legendary_id = pack_info[0][6]
             mythical_id = pack_info[0][7]
             cash_base = pack_info[0][9]
+            voucher_base = float(pack_info[0][10])
             rewards = {
                 "Common Drop": common_id,
                 "Uncommon Drop": uncommon_id,
@@ -214,9 +215,6 @@ class Script(commands.Cog):
                 # coin/vouchers multiplier depending on number of rolls / rarity (if reward for that rarity is coins/vouchers)
                 cash_multiplier = 1
                 voucher_multiplier = 1
-
-                # base number to multiply by (cash_base pulled from pack-specific data above)
-                voucher_base = 1
 
                 # roll 0 or 1 every time. if 1, move on to next rarity. if 0, stop and get rarity it was on
                 # decrease odds of next roll every iteration (to balance odds)
@@ -237,7 +235,7 @@ class Script(commands.Cog):
                             )
                             pulls.append(f"- {drop} - {cash_rewarded} Cash")
                         elif reward_id == -2:
-                            vouchers_rewarded = voucher_base * voucher_multiplier
+                            vouchers_rewarded = round(voucher_base * voucher_multiplier)
                             conn.execute(
                                 f"UPDATE Users SET vouchers = vouchers + {vouchers_rewarded} WHERE id = ?",
                                 (ctx.author.id,),
@@ -269,7 +267,7 @@ class Script(commands.Cog):
                                 if total == 1:
                                     dotenv.load_dotenv()
                                     pull_vid = os.getenv("PULL_VID")
-                                    await ctx.channel.send(file=pull_vid)
+                                    await ctx.channel.send(file=discord.File(pull_vid))
                             # change reward to voucher if no more of a card available in rarity
                             if total != None and next_number > total:
                                 all_out.append(f"- {drop} - {card_name}")
@@ -319,7 +317,7 @@ class Script(commands.Cog):
         # make a select menu of available packs plus an option to cancel
 
         pack_names = [row[0] for row in rows]
-        pack_descriptions = [row[10] for row in rows]
+        pack_descriptions = [row[11] for row in rows]
         pack_costs = [row[1] for row in rows]
         select_options = [
             discord.SelectOption(
@@ -1000,7 +998,7 @@ class Script(commands.Cog):
         return
 
     @commands.command()
-    # if the user has the cards in a set, they can claim the set reward for free! howeverm the cards they use to claim become untradable/unsellable
+    # if the user has the cards in a set, they can claim the set reward for free! however the cards they use to claim become untradable/unsellable
     async def completeset(self, ctx):
         # callback runs after user chose from dropdown menu
         async def callback(interaction):
@@ -1056,8 +1054,8 @@ class Script(commands.Cog):
                 conn = sqlite3.connect("cards.db")
                 for card in unobtained_cards:
                     name = conn.execute(
-                        "SELECT name FROM CardsGeneral WHERE id = ?", (card)
-                    )
+                        "SELECT name FROM CardsGeneral WHERE id = ?", (card,)
+                    ).fetchall()[0][0]
                     await ctx.channel.send(f"- {name}")
                 return
             # at this point, user has all cards required, so we can reward
@@ -1170,6 +1168,91 @@ class Script(commands.Cog):
             f"<@{ctx.author.id}> just tipped <@{user_id}> {cash} cash!!!"
         )
         return
+
+    @commands.command()
+    # redeem an available code by using command them code right after (only one of the same code per user)
+    async def code(self, ctx, code):
+        conn = sqlite3.connect("cards.db")
+        # get info about code
+        try:
+            code_info = conn.execute(
+                "SELECT * FROM Codes WHERE code = ?", (code,)
+            ).fetchall()[0]
+            # check if already claimed by user
+            codes_claimed = (
+                conn.execute(
+                    "SELECT CodesClaimed From Users WHERE id = ?", (ctx.author.id,)
+                )
+                .fetchall()[0][0]
+                .split(",")
+            )
+            code_id = code_info[0]
+            if str(code_id) in codes_claimed:
+                raise helper.AlreadyClaimedError
+
+            # check if code is available
+            available = code_info[4]
+            if available == 0:
+                raise helper.PackNotAvailableError
+
+            # at this point, ready to redeem.
+            # store code info in different variables
+            name = code_info[1]
+            reward_id = code_info[2]
+            quantity = None
+            # reward cash
+            if reward_id == -1:
+                quantity = code_info[3]
+                conn.execute(
+                    f"UPDATE Users SET cash = cash + {quantity} WHERE id = ?",
+                    (ctx.author.id,),
+                )
+            # reward vouchers
+            elif reward_id == -2:
+                quantity = code_info[3]
+                conn.execute(
+                    f"UPDATE Users SET vouchers = vouchers + {quantity} WHERE id = ?",
+                    (ctx.author.id,),
+                )
+            # reward card
+            else:
+                helper.add_card(
+                    ctx.author.id, reward_id, handle_connection=False, conn=conn
+                )
+
+            # add to user's codes claimed unless it is a reusable code (-1 id)
+            if code_id != -1:
+                codes_claimed = ",".join(codes_claimed)
+                codes_claimed += f"{code_id},"
+                conn.execute(
+                    f"UPDATE Users SET CodesClaimed = ? WHERE id = ?",
+                    (
+                        codes_claimed,
+                        ctx.author.id,
+                    ),
+                )
+
+            # display message for success
+            await ctx.channel.send(
+                f"<@{ctx.author.id}> You have successfully claimed {name}!"
+            )
+
+        # if code does not exist
+        except IndexError:
+            await ctx.channel.send(f"<@{ctx.author.id}> The code does not exist...")
+        # if user already claimed code
+        except helper.AlreadyClaimedError:
+            await ctx.channel.send(
+                f"<@{ctx.author.id}> You already claimed this code..."
+            )
+        # if code is not available
+        except helper.PackNotAvailableError:
+            await ctx.channel.send(f"<@{ctx.author.id}> This code is not available...")
+        # resolve
+        finally:
+            conn.commit()
+            conn.close()
+            return
 
 
 # setup cog/connection of this file to main.py

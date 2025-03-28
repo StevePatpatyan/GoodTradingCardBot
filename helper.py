@@ -17,6 +17,10 @@ class PackNotAvailableError(Exception):
     pass
 
 
+class AlreadyClaimedError(Exception):
+    pass
+
+
 # handle_connection: whether or not to open, commit, and close the db within the function
 # conn: the sqlite3 connection to the database (not needed if handle_connection is set to True)
 def add_card(user_id, card_id, handle_connection=True, conn=None):

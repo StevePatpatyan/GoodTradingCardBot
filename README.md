@@ -32,6 +32,7 @@ Users:
 - vouchers: number of vouchers user has
 - LastLogin: last time user has logged in (stored to check if user has already claimed login bonus)
 - SetsClaimed: set rewards that user claimed (as they cannot claim them again). Format is set ids separated by commas
+- CodesClaimed: codes that user claimed (as they cannot claim them again). Format is code ids separated by commas
 
   Packs:
 
@@ -45,6 +46,7 @@ Users:
 - MythicalDrop: id of mythical drop
 - available: whether or not pack is available (0 if unavailable or 1 if available)
 - CashBase: base value of cash rewarded if drop rewards cash (see openPack command)
+- VoucherBase: base value of vouvhers rewarded if drop rewards vouchers
 - description - description of pack
 
 VoucherRewards:
@@ -73,5 +75,14 @@ SetRewards:
 - CardsRequired: card_ids of cards required to claim set reward separated by commas
 - description: description of set reward
 - quantity: amount of cash/vouchers given if that is the reward
+
+Codes:
+
+- id: unique id of code
+- name: name of the reward displayed
+- reward_id: id of the card given (or -1/-2 for cash/vouchers)
+- quantity: amount of cash/vouchers given if that is a reward
+- available: 0 if code is not available and 1 if it is
+- code: the code to claim the reward
 
 **NOTE: I may change how odds work between commits. Modify rolls variable in the code and at end of iteration to make your own odds**
