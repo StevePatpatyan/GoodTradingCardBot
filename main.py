@@ -14,7 +14,7 @@ async def on_ready():
     print(f"Logged in as {bot.user.name}")
     channel = bot.get_channel(int(os.getenv("STARTUP_CHANNEL_ID")))
     allowed_mentions = discord.AllowedMentions(everyone=True)
-    # await channel.send(content="@everyone", allowed_mentions=allowed_mentions)
+    await channel.send(content="@everyone", allowed_mentions=allowed_mentions)
     news = os.getenv("NEWS").split(",")
     news = "\n".join([f"- {new}" for new in news])
     await channel.send(news)

@@ -85,4 +85,4 @@ Codes:
 - available: 0 if code is not available and 1 if it is
 - code: the code to claim the reward
 
-**NOTE: I may change how odds work between commits. Modify rolls variable in the code and at end of iteration to make your own odds**
+**NOTE: I may change how odds work between commits. Modify rolls variable in the code and at end of iteration or the while loop condition to make your own odds**

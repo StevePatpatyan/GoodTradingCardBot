@@ -263,11 +263,11 @@ class Script(commands.Cog):
                             if drop == "MYTHICAL PULL":
                                 image = rows[0][3]
                                 await ctx.channel.send(file=discord.File(image))
-                                # Play special video if card is 1 of 1
-                                if total == 1:
-                                    dotenv.load_dotenv()
-                                    pull_vid = os.getenv("PULL_VID")
-                                    await ctx.channel.send(file=discord.File(pull_vid))
+                                # # Play special video if card is 1 of 1
+                                # if total == 1:
+                                #     dotenv.load_dotenv()
+                                #     pull_vid = os.getenv("PULL_VID")
+                                #     await ctx.channel.send(file=discord.File(pull_vid))
                             # change reward to voucher if no more of a card available in rarity
                             if total != None and next_number > total:
                                 all_out.append(f"- {drop} - {card_name}")
@@ -340,7 +340,11 @@ class Script(commands.Cog):
     # check either cash or voucher balance
     @commands.command()
     async def balance(self, ctx, check_type):
-        if check_type.lower() != "c" and check_type.lower() != "v":
+        if (
+            check_type.lower() != "c"
+            and check_type.lower() != "v"
+            and check_type.lower() != "e"
+        ):
             await ctx.channel.send("Invalid balance type...")
             return
         conn = sqlite3.connect("cards.db")
@@ -349,11 +353,18 @@ class Script(commands.Cog):
                 "SELECT cash from Users WHERE id = ?", (ctx.author.id,)
             ).fetchall()[0][0]
             await ctx.channel.send(f"You have {cash} cash.")
-        else:
+        elif check_type.lower() == "v":
             vouchers = conn.execute(
                 "SELECT vouchers from Users WHERE id = ?", (ctx.author.id,)
             ).fetchall()[0][0]
             await ctx.channel.send(f"You have {vouchers} vouchers.")
+        else:
+            event_vouchers = conn.execute(
+                "SELECT EventVouchers from Users WHERE id = ?", (ctx.author.id,)
+            ).fetchall()[0][0]
+            await ctx.channel.send(
+                f"You have {event_vouchers} vouchers for the current event."
+            )
         conn.close()
         return
 
@@ -1105,7 +1116,7 @@ class Script(commands.Cog):
                 conn.execute(
                     "UPDATE Cards SET tradable = 0 WHERE id = ?", (specific_card_id,)
                 )
-            sets_claimed = ",".join(sets_claimed)
+            sets_claimed = ",".join(str(s) for s in sets_claimed)
             sets_claimed += f"{set_id},"
             conn.execute(
                 "UPDATE Users SET SetsClaimed = ? WHERE id = ?",
@@ -1220,17 +1231,17 @@ class Script(commands.Cog):
                     ctx.author.id, reward_id, handle_connection=False, conn=conn
                 )
 
-            # add to user's codes claimed unless it is a reusable code (-1 id)
-            if code_id != -1:
-                codes_claimed = ",".join(codes_claimed)
-                codes_claimed += f"{code_id},"
-                conn.execute(
-                    f"UPDATE Users SET CodesClaimed = ? WHERE id = ?",
-                    (
-                        codes_claimed,
-                        ctx.author.id,
-                    ),
-                )
+            # add to user's codes claimed (reusable code = -1 id if you wish. To prevent multiple entries in rapid time, you can remove this manually from database later.)
+            # if code_id != -1:
+            codes_claimed = ",".join(str(s) for s in codes_claimed)
+            codes_claimed += f"{code_id},"
+            conn.execute(
+                f"UPDATE Users SET CodesClaimed = ? WHERE id = ?",
+                (
+                    codes_claimed,
+                    ctx.author.id,
+                ),
+            )
 
             # display message for success
             await ctx.channel.send(
