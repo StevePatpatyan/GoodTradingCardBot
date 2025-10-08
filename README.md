@@ -1,88 +1,145 @@
-This is my trading card discord bot. The following code should be good to use for anyone. I have the trading cards as images of family including myself.
+# 🎴 Trading Card Discord Bot
 
-The database schema I use for cards involves the general card info table as well as the table of specific cards tied to an owner and number out of the total of that particular card type. One can modify the code for themselves to fit a different schema!
+This is my **Trading Card Discord Bot**, a customizable system where users can collect, trade, and earn virtual cards.  
+You can use this as a base for your own project — the structure is flexible, and you can easily modify it to match your own schema or theme.
 
-There is also a Users table which stores cash and voucher balance of a user as well as Packs table which stores info about packs that users can open.
+My implementation uses **family and personal photos** as the card images, but you can substitute these with any images of your choice.
 
-For now, the code assumes the person interacting with the bot is registered in the database,
+---
 
-General Schema:
+## 🗃️ Database Overview
 
-CardsGeneral:
+The bot uses a few main tables to manage data:
 
-- id - general card id (or cash/voucher id)
-- image - image path of card
-- name - card name
-- total - total number of cards available (infinite if NULL)
-  NextNumber - next number of the card if a new one is generated (EX: If there are 4 of a card, NextNumber is 5)
+- **CardsGeneral** — stores metadata for each card type  
+- **Cards** — stores specific instances of cards owned by users  
+- **Users** — stores user balances and data  
+- **Packs** — defines packs that can be opened  
+- **VoucherRewards**, **Questions**, **SetRewards**, and **Codes** — additional systems for special rewards and bonuses  
 
-Cards:
+> 💡 The current version assumes the user interacting with the bot is already registered in the database.
 
-- id: specific card id
-- general_id: general card id (foreign key of id in CardsGeneral)
-- number: number of the card compared to all of the cards of its type
-- owner_id: discord id of the owner of the card (foreign key of id in Users)
-- tradable: whether or not the card can be traded (0 for no, 1 for yes)
+---
 
-Users:
+## 📚 General Schema
 
-- id: discord user id
-- username: discord username
-- cash: cash amount of user
-- vouchers: number of vouchers user has
-- LastLogin: last time user has logged in (stored to check if user has already claimed login bonus)
-- SetsClaimed: set rewards that user claimed (as they cannot claim them again). Format is set ids separated by commas
-- CodesClaimed: codes that user claimed (as they cannot claim them again). Format is code ids separated by commas
+### **CardsGeneral**
+| Field | Description |
+|-------|--------------|
+| `id` | General card ID (or cash/voucher ID) |
+| `image` | Image path of the card |
+| `name` | Card name |
+| `total` | Total number of cards available (∞ if `NULL`) |
+| `NextNumber` | Next number for new cards (e.g., if there are 4 of a card, NextNumber = 5) |
 
-  Packs:
+---
 
-- name: pack name
-- cost: cash cost of pack
-- CommonDrop: id of common drop
-- UncommonDrop: id of uncommon drop
-- RareDrop: id of rare drop
-- EpicDrop: id of epic drop
-- LegendaryDrop: id of legendary drop
-- MythicalDrop: id of mythical drop
-- available: whether or not pack is available (0 if unavailable or 1 if available)
-- CashBase: base value of cash rewarded if drop rewards cash (see openPack command)
-- VoucherBase: base value of vouvhers rewarded if drop rewards vouchers
-- description - description of pack
+### **Cards**
+| Field | Description |
+|-------|--------------|
+| `id` | Specific card ID |
+| `general_id` | Foreign key → `CardsGeneral.id` |
+| `number` | Card’s number within its type |
+| `owner_id` | Discord ID of the card owner (`Users.id`) |
+| `tradable` | Whether the card can be traded (`0` = No, `1` = Yes) |
 
-VoucherRewards:
+---
 
-- cost: cost of reward in vouchers
-- reward_id: general id of reward (CardsGeneral id)
-- available: availability of reward (0 if unavailable, 1 if available)
-- name: name of event that user will type as parameter of useVouchers command
-- CashRewarded: amount of cash voucher gives if reward is cash
-- description: description of reward
+### **Users**
+| Field | Description |
+|-------|--------------|
+| `id` | Discord user ID |
+| `username` | Discord username |
+| `cash` | User’s current cash |
+| `vouchers` | Number of vouchers owned |
+| `LastLogin` | Timestamp of last login (for login bonuses) |
+| `SetsClaimed` | IDs of claimed set rewards (comma-separated) |
+| `CodesClaimed` | IDs of claimed codes (comma-separated) |
 
-Questions (used for login bonus for now):
+---
 
-- question: the question in question
-- answer1: one answer choice
-- answer2: another answer choice
-- answer3: another answer choice
-- answer4: another answer choice
-- correct: the actual correct answer to the question
+### **Packs**
+| Field | Description |
+|-------|--------------|
+| `name` | Pack name |
+| `cost` | Cash cost of the pack |
+| `CommonDrop` | ID of common drop |
+| `UncommonDrop` | ID of uncommon drop |
+| `RareDrop` | ID of rare drop |
+| `EpicDrop` | ID of epic drop |
+| `LegendaryDrop` | ID of legendary drop |
+| `MythicalDrop` | ID of mythical drop |
+| `available` | Whether the pack is available (`0` = No, `1` = Yes) |
+| `CashBase` | Base cash reward if drop rewards cash |
+| `VoucherBase` | Base voucher reward if drop rewards vouchers |
+| `description` | Description of the pack |
 
-SetRewards:
+---
 
-- id: unique id of the set reward
-- name: name of the set reward displayed
-- reward_id: id of the card given (or -1/-2 if cash/vouchers)
-- CardsRequired: card_ids of cards required to claim set reward separated by commas
-- description: description of set reward
-- quantity: amount of cash/vouchers given if that is the reward
+### **VoucherRewards**
+| Field | Description |
+|-------|--------------|
+| `cost` | Cost of reward in vouchers |
+| `reward_id` | General reward ID (`CardsGeneral.id`) |
+| `available` | Availability (`0` = No, `1` = Yes) |
+| `name` | Name of the event (used in `useVouchers` command) |
+| `CashRewarded` | Cash amount if reward is cash |
+| `description` | Description of the voucher reward |
 
-Codes:
+---
 
-- id: unique id of code
-- name: name of the reward displayed
-- reward_id: id of the card given (or -1/-2 for cash/vouchers)
-- quantity: amount of cash/vouchers given if that is a reward
-- available: 0 if code is not available and 1 if it is
-- code: the code to claim the reward
+### **Questions**
+*(Used for login bonuses)*
 
-**NOTE: I may change how odds work between commits. Modify rolls variable in the code and at end of iteration or the while loop condition to make your own odds**
+| Field | Description |
+|-------|--------------|
+| `question` | Question text |
+| `answer1`–`answer4` | Multiple-choice answers |
+| `correct` | The correct answer |
+
+---
+
+### **SetRewards**
+| Field | Description |
+|-------|--------------|
+| `id` | Unique set reward ID |
+| `name` | Name of the set reward |
+| `reward_id` | ID of the reward (`-1` / `-2` for cash/vouchers) |
+| `CardsRequired` | Comma-separated IDs of required cards |
+| `description` | Description of the set reward |
+| `quantity` | Amount of cash/vouchers given if applicable |
+
+---
+
+### **Codes**
+| Field | Description |
+|-------|--------------|
+| `id` | Unique code ID |
+| `name` | Display name of the reward |
+| `reward_id` | ID of reward (`-1` / `-2` for cash/vouchers) |
+| `quantity` | Amount of cash/vouchers if applicable |
+| `available` | Availability (`0` = No, `1` = Yes) |
+| `code` | The code string users enter to claim reward |
+
+---
+
+## 🎲 Odds and Customization
+
+> ⚠️ **Note:** Odds and drop rates may change between commits.  
+You can tweak your own odds by modifying:
+- The `rolls` variable in the code
+- The end condition of the iteration or `while` loop
+
+This allows full control over pack rarity balance and reward distribution.
+
+---
+
+## 🧩 How to Customize
+
+- Replace images in `CardsGeneral` with your own collection  
+- Modify schemas for your preferred structure  
+- Adjust drop rates, rewards, and login bonuses to match your gameplay style  
+
+---
+
+**Happy Collecting! 🎉**
