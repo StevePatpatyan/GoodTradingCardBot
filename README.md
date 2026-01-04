@@ -55,6 +55,7 @@ The bot uses a few main tables to manage data:
 | `LastLogin` | Timestamp of last login (for login bonuses) |
 | `SetsClaimed` | IDs of claimed set rewards (comma-separated) |
 | `CodesClaimed` | IDs of claimed codes (comma-separated) |
+| `opening_pack` | indicates whether or not a user is currently opening a pack (prevents spam) |
 
 ---
 
@@ -63,12 +64,12 @@ The bot uses a few main tables to manage data:
 |-------|--------------|
 | `name` | Pack name |
 | `cost` | Cash cost of the pack |
-| `CommonDrop` | ID of common drop |
-| `UncommonDrop` | ID of uncommon drop |
-| `RareDrop` | ID of rare drop |
-| `EpicDrop` | ID of epic drop |
-| `LegendaryDrop` | ID of legendary drop |
-| `MythicalDrop` | ID of mythical drop |
+| `CommonDrop` | ID(s) of common drop(s) (comma-separated) |
+| `UncommonDrop` | ID(s) of uncommon drop(s) (comma-separated) |
+| `RareDrop` | ID(s) of rare drop(s) (comma-separated) |
+| `EpicDrop` | ID(s) of epic drop(s) (comma-separated) |
+| `LegendaryDrop` | ID(s) of legendary drop(s) (comma-separated) |
+| `MythicalDrop` | ID(s) of mythical drop(s) (comma-separated) |
 | `available` | Whether the pack is available (`0` = No, `1` = Yes) |
 | `CashBase` | Base cash reward if drop rewards cash |
 | `VoucherBase` | Base voucher reward if drop rewards vouchers |

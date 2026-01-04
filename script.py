@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-import sqlite3
+import aiosqlite
 from asyncio import TimeoutError
 import helper
 import random
@@ -40,14 +40,14 @@ class Script(commands.Cog):
                 )
                 return
             # get users card image that they choose to display
-            conn = sqlite3.connect("cards.db")
+            conn = await aiosqlite.connect("cards.db")
             card_name = select_menu.values[0].split("~")[0]
-            cursor = conn.execute(
+            cursor = await conn.execute(
                 "SELECT image FROM CardsGeneral WHERE name = ?", (card_name,)
             )
-            rows = cursor.fetchall()
+            rows = await cursor.fetchall()
             image = rows[0][0]
-            conn.close()
+            await conn.close()
             # display card image
             if image.split(".")[1] == "gif":
                 await ctx.channel.send(file=discord.File(image), view=view)
@@ -59,17 +59,17 @@ class Script(commands.Cog):
             return
 
         # get users card names
-        conn = sqlite3.connect("cards.db")
+        conn = await  aiosqlite.connect("cards.db")
         if user == "all":
-            cursor = conn.execute(
+            cursor = await conn.execute(
                 "SELECT id FROM CardsGeneral WHERE id != -1 AND id != -2"
             )
         else:
             id = int(user[2:-1])
-            cursor = conn.execute(
+            cursor = await conn.execute(
                 "SELECT general_id FROM Cards WHERE owner_id = ?", (id,)
             )
-        rows = cursor.fetchall()
+        rows = await cursor.fetchall()
         # check if there are cards associated with the id
         if len(rows) == 0:
             await ctx.channel.send(
@@ -83,13 +83,13 @@ class Script(commands.Cog):
         names = []
         totals = []
         for general in general_ids:
-            cursor = conn.execute(
+            cursor = await conn.execute(
                 "SELECT name,total FROM CardsGeneral WHERE id = ?", (general,)
             )
-            rows = cursor.fetchall()
+            rows = await cursor.fetchall()
             names = names + [row[0] for row in rows]
             totals = totals + [row[1] for row in rows]
-        conn.close()
+        await conn.close()
         totals = ["N/A" if total == None else total for total in totals]
         # make a select menu of user cards plus an option to cancel
 
@@ -137,12 +137,12 @@ class Script(commands.Cog):
                 )
                 return
             # get specified all available pack info
-            conn = sqlite3.connect("cards.db")
-            cursor = conn.execute(
+            conn = await aiosqlite.connect("cards.db")
+            cursor = await conn.execute(
                 "SELECT * FROM Packs WHERE name = ?", (select_menu.values[0],)
             )
-            pack_info = cursor.fetchall()
-            conn.close()
+            pack_info = await cursor.fetchall()
+            await conn.close()
 
             name = select_menu.values[0]
             if name == "Cancel Pack":
@@ -172,14 +172,15 @@ class Script(commands.Cog):
                 return
             # subtract cost from balance (if sufficient cash)
             try:
-                conn = sqlite3.connect("cards.db")
-                cursor = conn.execute(
+                conn = await aiosqlite.connect("cards.db")
+                cursor = await conn.execute(
                     "SELECT cash FROM Users WHERE id = ?", (ctx.author.id,)
                 )
-                cash = cursor.fetchall()[0][0]
+                cash = await cursor.fetchall()
+                cash = cash[0][0]
                 if cash < cost:
                     raise helper.NotEnoughCashError
-                conn.execute(
+                await conn.execute(
                     f"UPDATE Users SET cash = cash - {cost} WHERE id = ?",
                     (ctx.author.id,),
                 )
@@ -187,7 +188,7 @@ class Script(commands.Cog):
                 await ctx.channel.send(
                     content="You do not have enough cash...", view=view
                 )
-                conn.close()
+                await conn.close()
                 return
             # open a pack/ go through rolls for each pack. add card reward ids and cash/voucher pulls to pulls list to announce pulls after the rolling loop is done
             pulls = []
@@ -229,14 +230,14 @@ class Script(commands.Cog):
                             pulls.append(f"- {drop} - Nothing...")
                         elif reward_id == -1:
                             cash_rewarded = cash_base * cash_multiplier
-                            conn.execute(
+                            await conn.execute(
                                 f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
                                 (ctx.author.id,),
                             )
                             pulls.append(f"- {drop} - {cash_rewarded} Cash")
                         elif reward_id == -2:
                             vouchers_rewarded = round(voucher_base * voucher_multiplier)
-                            conn.execute(
+                            await conn.execute(
                                 f"UPDATE Users SET vouchers = vouchers + {vouchers_rewarded} WHERE id = ?",
                                 (ctx.author.id,),
                             )
@@ -244,17 +245,17 @@ class Script(commands.Cog):
 
                         # card reward
                         else:
-                            helper.add_card(
+                            await helper.add_card(
                                 ctx.author.id,
                                 reward_id,
                                 handle_connection=False,
                                 conn=conn,
                             )
-                            cursor = conn.execute(
+                            cursor = await conn.execute(
                                 "SELECT name,total,NextNumber,image FROM CardsGeneral WHERE id = ?",
                                 (reward_id,),
                             )
-                            rows = cursor.fetchall()
+                            rows = await cursor.fetchall()
                             next_number = rows[0][2]
                             total = rows[0][1]
                             card_name = rows[0][0]
@@ -277,7 +278,7 @@ class Script(commands.Cog):
                                 ]
                                 drop_name = drop.title().replace(" ", "")
                                 reward_ids = ",".join(reward_ids)
-                                conn.execute(
+                                await conn.execute(
                                     f"UPDATE Packs SET {drop_name} = {reward_ids} WHERE name = ?",
                                     (name,),
                                 )
@@ -293,8 +294,9 @@ class Script(commands.Cog):
                         reward_ids = ",".join(reward_ids)
 
             # announce pulls and if any cards are no longer available
-            conn.commit()
-            conn.close()
+            await conn.execute("UPDATE Users SET opening_pack = 0 WHERE id = ?", (ctx.author.id,))
+            await conn.commit()
+            await conn.close()
             await ctx.channel.send(
                 f"<@{ctx.author.id}> you pulled the following from the {name} pack(s):"
             )
@@ -308,11 +310,21 @@ class Script(commands.Cog):
                 await ctx.channel.send("\n".join(all_out))
             return
 
+        # check if user is opening pack already
+        conn = await  aiosqlite.connect("cards.db")
+        cursor = await conn.execute("SELECT opening_pack FROM Users WHERE id = ?", (ctx.author.id,))
+        opening_pack = await cursor.fetchall()
+        opening_pack = opening_pack[0][0]
+        if opening_pack == 1:
+            await ctx.channel.send( f"<@{ctx.author.id}> you are already trying to open a pack...")
+            await conn.close()
+            return
         # get specified all pack info
-        conn = sqlite3.connect("cards.db")
-        cursor = conn.execute("SELECT * FROM Packs WHERE available = 1")
-        rows = cursor.fetchall()
-        conn.close()
+        await conn.execute("UPDATE Users SET opening_pack = 1 WHERE id = ?", (ctx.author.id,))
+        await conn.commit()
+        cursor = await conn.execute("SELECT * FROM Packs WHERE available = 1")
+        rows = await cursor.fetchall()
+        await conn.close()
 
         # make a select menu of available packs plus an option to cancel
 
@@ -347,25 +359,33 @@ class Script(commands.Cog):
         ):
             await ctx.channel.send("Invalid balance type...")
             return
-        conn = sqlite3.connect("cards.db")
+        conn = await aiosqlite.connect("cards.db")
         if check_type.lower() == "c":
-            cash = conn.execute(
+            cursor = await conn.execute(
                 "SELECT cash from Users WHERE id = ?", (ctx.author.id,)
-            ).fetchall()[0][0]
+            )
+            cash = await cursor.fetchall()
+            cash = cash[0][0]
             await ctx.channel.send(f"You have {cash} cash.")
         elif check_type.lower() == "v":
-            vouchers = conn.execute(
+            cursor = await conn.execute(
                 "SELECT vouchers from Users WHERE id = ?", (ctx.author.id,)
-            ).fetchall()[0][0]
+            )
+            
+            vouchers = await cursor.fetchall()
+            vouchers = vouchers[0][0]
             await ctx.channel.send(f"You have {vouchers} vouchers.")
         else:
-            event_vouchers = conn.execute(
+            cursor = await conn.execute(
                 "SELECT EventVouchers from Users WHERE id = ?", (ctx.author.id,)
-            ).fetchall()[0][0]
+            )
+            
+            event_vouchers = await cursor.fetchall()
+            event_vouchers = event_vouchers[0][0]
             await ctx.channel.send(
                 f"You have {event_vouchers} vouchers for the current event."
             )
-        conn.close()
+        await conn.close()
         return
 
     # use vouchers to get event rewards
@@ -380,12 +400,12 @@ class Script(commands.Cog):
                 )
                 return
             # get specified voucher reward info, check reward exists and if it's available
-            conn = sqlite3.connect("cards.db")
-            cursor = conn.execute(
+            conn = await  aiosqlite.connect("cards.db")
+            cursor = await conn.execute(
                 "SELECT * FROM VoucherRewards WHERE name = ?", (select_menu.values[0],)
             )
-            rows = cursor.fetchall()
-            conn.close()
+            rows = await cursor.fetchall()
+            await conn.close()
 
             name = select_menu.values[0]
             if name == "Cancel Voucher":
@@ -397,30 +417,31 @@ class Script(commands.Cog):
             cost = rows[0][0]
             # subtract cost from balance (if sufficient vouchers)
             try:
-                conn = sqlite3.connect("cards.db")
-                cursor = conn.execute(
+                conn = await  aiosqlite.connect("cards.db")
+                cursor = await conn.execute(
                     "SELECT vouchers FROM Users WHERE id = ?", (ctx.author.id,)
                 )
-                vouchers = cursor.fetchall()[0][0]
+                vouchers = await cursor.fetchall()
+                vouchers = vouchers[0][0]
                 if vouchers < cost:
                     raise helper.NotEnoughCashError
-                conn.execute(
+                await conn.execute(
                     f"UPDATE Users SET vouchers = vouchers - {cost} WHERE id = ?",
                     (ctx.author.id,),
                 )
-                conn.commit()
+                await conn.commit()
             except helper.NotEnoughCashError:
                 await interaction.response.edit_message(
                     content="You do not have enough vouchers...", view=view
                 )
-                conn.close()
+                await conn.close()
                 return
 
             # give reward to user
             reward_id = rows[0][1]
             cash_rewarded = rows[0][4]
             if reward_id == -1:
-                conn.execute(
+                await conn.execute(
                     f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
                     (ctx.author.id,),
                 )
@@ -429,12 +450,12 @@ class Script(commands.Cog):
                     view=view,
                 )
             else:
-                helper.add_card(ctx.author.id, reward_id)
-                cursor = conn.execute(
+                await helper.add_card(ctx.author.id, reward_id)
+                cursor = await conn.execute(
                     "SELECT name,total,NextNumber FROM CardsGeneral WHERE id = ?",
                     (reward_id,),
                 )
-                rows = cursor.fetchall()
+                rows = await cursor.fetchall()
                 card_name = rows[0][0]
                 next_number = rows[0][2]
                 total = rows[0][1]
@@ -444,21 +465,21 @@ class Script(commands.Cog):
                 )
                 # if card ran out, set as unavailable
                 if total != None and next_number > total:
-                    conn.execute(
+                    await conn.execute(
                         "UPDATE VoucherRewards SET available = 0 WHERE name = ?",
                         (name,),
                     )
                     await ctx.channel.send(
                         "There are no more of this card available..."
                     )
-            conn.commit()
-            conn.close()
+            await conn.commit()
+            await conn.close()
 
         # get specified voucher reward info, check reward exists and if it's available
-        conn = sqlite3.connect("cards.db")
-        cursor = conn.execute("SELECT * FROM VoucherRewards WHERE available = 1")
-        rows = cursor.fetchall()
-        conn.close()
+        conn = await  aiosqlite.connect("cards.db")
+        cursor = await conn.execute("SELECT * FROM VoucherRewards WHERE available = 1")
+        rows = await cursor.fetchall()
+        await conn.close()
 
         # make a select menu of available packs
         voucher_names = [row[3] for row in rows]
@@ -506,40 +527,41 @@ class Script(commands.Cog):
                     view=None,
                 )
             # give cash and update last login
-            conn = sqlite3.connect("cards.db")
-            conn.execute(
+            conn = await  aiosqlite.connect("cards.db")
+            await conn.execute(
                 f"UPDATE Users SET cash = cash + {cash_rewarded} WHERE id = ?",
                 (ctx.author.id,),
             )
             new_login_date = today.strftime("%m/%d/%Y")
-            conn.execute(
+            await conn.execute(
                 "UPDATE Users SET LastLogin = ? WHERE id = ?",
                 (
                     new_login_date,
                     ctx.author.id,
                 ),
             )
-            conn.commit()
-            conn.close()
+            await conn.commit()
+            await conn.close()
             return
 
-        conn = sqlite3.connect("cards.db")
-        cursor = conn.execute(
+        conn = await  aiosqlite.connect("cards.db")
+        cursor = await conn.execute(
             "SELECT LastLogin FROM Users WHERE id = ?", (ctx.author.id,)
         )
-        last_login = cursor.fetchall()[0][0]
+        last_login = await cursor.fetchall()
+        last_login = last_login[0][0]
         last_login = datetime.strptime(last_login, "%m/%d/%Y").date()
         today = datetime.today().date()
         # check if already logged in
         if last_login >= today:
             await ctx.channel.send("I'm afraid you've already logged in today...")
-            conn.close()
+            await conn.close()
             return
         # get question to answer
-        conn = sqlite3.connect("cards.db")
-        cursor = conn.execute("SELECT * FROM Questions")
-        questions = cursor.fetchall()
-        conn.close()
+        conn = await  aiosqlite.connect("cards.db")
+        cursor = await conn.execute("SELECT * FROM Questions")
+        questions = await cursor.fetchall()
+        await conn.close()
         selected = random.choice(questions)
         question = selected[0]
         answers = [selected[1], selected[2], selected[3], selected[4]]
@@ -580,22 +602,25 @@ class Script(commands.Cog):
             return
 
         # get names and numbers of initiator's cards
-        conn = sqlite3.connect("cards.db")
-        cursor = conn.execute(
+        conn = await  aiosqlite.connect("cards.db")
+        cursor = await conn.execute(
             "SELECT general_id,number FROM Cards WHERE owner_id = ? and tradable = 1",
             (ctx.author.id,),
         )
 
-        rows = cursor.fetchall()
+        rows = await cursor.fetchall()
         general_ids = [row[0] for row in rows]
         numbers = [row[1] for row in rows]
-        names = [
-            conn.execute(
+
+        names = []
+        for general_id in general_ids:
+            cursor = await conn.execute(
                 "SELECT name FROM CardsGeneral WHERE id = ?", (general_id,)
-            ).fetchall()[0][0]
-            for general_id in general_ids
-        ]
-        conn.close()
+            )
+            name = await cursor.fetchall()
+            names.append(name[0][0])
+
+        await conn.close()
         cards_info = [
             (
                 name,
@@ -632,11 +657,15 @@ class Script(commands.Cog):
                         continue
                     else:
                         amount_offered = int(search[1])
-                        conn = sqlite3.connect("cards.db")
-                        user_amount = conn.execute(
+                        conn = await  aiosqlite.connect("cards.db")
+                        cursor = await conn.execute(
                             f"SELECT {search[0]} FROM Users WHERE id = ?",
                             (ctx.author.id,),
-                        ).fetchall()[0][0]
+                        )
+                        
+                        user_amount = await cursor.fetchall()
+                        user_amount = user_amount[0][0]
+
                         if amount_offered > int(user_amount):
                             await ctx.channel.send(
                                 f"You do not have enough {search[0]} to offer that much... try again."
@@ -745,22 +774,23 @@ class Script(commands.Cog):
                 return
 
         ############################## get names and numbers of partner's cards #################################
-        conn = sqlite3.connect("cards.db")
-        cursor = conn.execute(
+        conn = await  aiosqlite.connect("cards.db")
+        cursor = await conn.execute(
             "SELECT general_id,number FROM Cards WHERE owner_id = ? and tradable = 1",
             (partner_id,),
         )
 
-        rows = cursor.fetchall()
+        rows = await cursor.fetchall()
         general_ids = [row[0] for row in rows]
         numbers = [row[1] for row in rows]
-        names = [
-            conn.execute(
+        names = []
+        for general_id in general_ids:
+            cursor = await conn.execute(
                 "SELECT name FROM CardsGeneral WHERE id = ?", (general_id,)
-            ).fetchall()[0][0]
-            for general_id in general_ids
-        ]
-        conn.close()
+            )
+            name = await cursor.fetchall()
+            names.append(name[0][0])
+        await conn.close()
         cards_info = [
             (
                 name,
@@ -798,11 +828,14 @@ class Script(commands.Cog):
                     else:
                         amount_offered = int(search[1])
                         search[1] = amount_offered
-                        conn = sqlite3.connect("cards.db")
-                        user_amount = conn.execute(
+                        conn = await  aiosqlite.connect("cards.db")
+                        cursor = await conn.execute(
                             f"SELECT {search[0]} FROM Users WHERE id = ?",
                             (partner_id,),
-                        ).fetchall()[0][0]
+                        )
+                        
+                        user_amount = await cursor.fetchall()
+                        user_amount = user_amount[0][0]
                         if amount_offered > int(user_amount):
                             await ctx.channel.send(
                                 f"This person does not have enough {search[0]} to offer that much... try again."
@@ -950,7 +983,7 @@ class Script(commands.Cog):
                 for offer in offered_items:
                     # card transfer
                     if type(offer) == tuple:
-                        helper.transfer(
+                        await helper.transfer(
                             "card",
                             ctx.author.id,
                             partner_id,
@@ -959,13 +992,13 @@ class Script(commands.Cog):
                         )
                     # cash/voucher transfer
                     else:
-                        helper.transfer(
+                        await helper.transfer(
                             offer[0], ctx.author.id, partner_id, amount=offer[1]
                         )
                 for desire in desired_items:
                     # card transfer
                     if type(desire) == tuple:
-                        helper.transfer(
+                        await helper.transfer(
                             "card",
                             partner_id,
                             ctx.author.id,
@@ -974,7 +1007,7 @@ class Script(commands.Cog):
                         )
                     # cash/voucher transfer
                     else:
-                        helper.transfer(
+                        await helper.transfer(
                             desire[0], partner_id, ctx.author.id, amount=desire[1]
                         )
                 await ctx.channel.send(
@@ -995,16 +1028,16 @@ class Script(commands.Cog):
     # how many of a certain card a user has
     @commands.command()
     async def howmany(self, ctx, card_id):
-        conn = sqlite3.connect("cards.db")
-        cursor = conn.execute(
+        conn = await  aiosqlite.connect("cards.db")
+        cursor = await conn.execute(
             "SELECT general_id from Cards WHERE general_id = ? and owner_id = ?",
             (
                 card_id,
                 ctx.author.id,
             ),
         )
-        rows = cursor.fetchall()
-        conn.close()
+        rows = await cursor.fetchall()
+        await conn.close()
         await ctx.channel.send(f"<@{ctx.author.id}> you have {len(rows)} of this card.")
         return
 
@@ -1021,39 +1054,42 @@ class Script(commands.Cog):
                 )
                 return
 
-            conn = sqlite3.connect("cards.db")
+            conn = await  aiosqlite.connect("cards.db")
             # check if user already claimed the set
-            cursor = conn.execute("SELECT id FROM SetRewards WHERE name = ?", (value,))
-            set_id = cursor.fetchall()[0][0]
-            cursor = conn.execute(
+            cursor = await conn.execute("SELECT id FROM SetRewards WHERE name = ?", (value,))
+            set_id = await cursor.fetchall()
+            set_id = set_id[0][0]
+            cursor = await conn.execute(
                 "SELECT SetsClaimed FROM Users WHERE id = ?", (ctx.author.id,)
             )
-            sets_claimed = cursor.fetchall()[0][0].split(",")
+            sets_claimed = await cursor.fetchall()
+            sets_claimed = sets_claimed[0][0].split(",")
             sets_claimed = [int(id) for id in sets_claimed if id.isdigit()]
             if set_id in sets_claimed:
                 await interaction.response.edit_message(
                     content="You already claimed this reward...", view=None
                 )
-                conn.close()
+                await conn.close()
                 return
 
             # get the id of the reward and cards needed to claim
-            cursor = conn.execute(
+            cursor = await conn.execute(
                 "SELECT reward_id,CardsRequired,quantity FROM SetRewards WHERE name = ?",
                 (value,),
             )
-            row = cursor.fetchall()[0]
+            row = await cursor.fetchall()
+            row = row[0]
             reward_id = row[0]
             cards_required = row[1].split(",")
             quantity = row[2]
 
             # ensure user has all cards needed
-            cursor = conn.execute(
+            cursor = await conn.execute(
                 "SELECT general_id FROM Cards WHERE owner_id = ?", (ctx.author.id,)
             )
-            general_ids = set([row[0] for row in cursor.fetchall()])
+            general_ids = set([row[0] for row in await cursor.fetchall()])
             unobtained_cards = []
-            conn.close()
+            await conn.close()
             for card in cards_required:
                 if card.isdigit() and int(card) not in general_ids:
                     unobtained_cards.append(card)
@@ -1062,43 +1098,49 @@ class Script(commands.Cog):
                     content="You do not have all the cards required to claim this set reward... Here are the cards you're missing",
                     view=None,
                 )
-                conn = sqlite3.connect("cards.db")
+                conn = await  aiosqlite.connect("cards.db")
                 for card in unobtained_cards:
-                    name = conn.execute(
+                    cursor = await conn.execute(
                         "SELECT name FROM CardsGeneral WHERE id = ?", (card,)
-                    ).fetchall()[0][0]
+                    )
+                    
+                    name = await cursor.fetchall()
+                    name = name[0][0]
                     await ctx.channel.send(f"- {name}")
                 return
             # at this point, user has all cards required, so we can reward
-            conn = sqlite3.connect("cards.db")
+            conn = await  aiosqlite.connect("cards.db")
             if reward_id == -1:
-                conn.execute(
+                await conn.execute(
                     f"UPDATE Users SET cash = cash + {quantity} WHERE id = ?",
                     (ctx.author.id,),
                 )
-                conn.commit()
+                await conn.commit()
                 await interaction.response.edit_message(
                     content=f"Congrats on completing the {value} and receiving {quantity} cash!",
                     view=None,
                 )
             elif reward_id == -2:
-                conn = sqlite3.connect("cards.db")
-                conn.execute(
+                conn = await  aiosqlite.connect("cards.db")
+                await conn.execute(
                     f"UPDATE Users SET vouchers = vouchers + {quantity} WHERE id = ?",
                     (ctx.author.id,),
                 )
-                conn.commit()
+                await conn.commit()
                 await interaction.response.edit_message(
                     content=f"Congrats on completing the {value} and receiving {quantity} vouchers!",
                     view=None,
                 )
             # card reward
             else:
-                helper.add_card(ctx.author.id, reward_id)
-                conn = sqlite3.connect("cards.db")
-                card_name = conn.execute(
+                await helper.add_card(ctx.author.id, reward_id)
+                conn = await  aiosqlite.connect("cards.db")
+                cursor = await conn.execute(
                     "SELECT name FROM CardsGeneral WHERE id = ?", (reward_id,)
-                ).fetchall()[0][0]
+                )
+                
+                card_name = await cursor.fetchall()
+                card_name = card_name[0][0]
                 await interaction.response.edit_message(
                     content=f"Congrats on completing the {value} and receiving {card_name}!",
                     view=None,
@@ -1106,34 +1148,36 @@ class Script(commands.Cog):
 
             # finally, change one of the cards they turned in to untradable and mark that they claimed the set
             for card_id in cards_required:
-                specific_card_id = conn.execute(
+                cursor = await conn.execute(
                     "SELECT id FROM Cards WHERE general_id = ? AND owner_id = ?",
                     (
                         int(card_id),
                         ctx.author.id,
                     ),
-                ).fetchall()[-1][0]
-                conn.execute(
+                )
+                specific_card_id = await cursor.fetchall()
+                specific_card_id = specific_card_id[-1][0]
+                await conn.execute(
                     "UPDATE Cards SET tradable = 0 WHERE id = ?", (specific_card_id,)
                 )
             sets_claimed = ",".join(str(s) for s in sets_claimed)
             sets_claimed += f"{set_id},"
-            conn.execute(
+            await conn.execute(
                 "UPDATE Users SET SetsClaimed = ? WHERE id = ?",
                 (
                     sets_claimed,
                     ctx.author.id,
                 ),
             )
-            conn.commit()
-            conn.close()
+            await conn.commit()
+            await conn.close()
             return
 
         # make select menus for set reward choices
-        conn = sqlite3.connect("cards.db")
-        cursor = conn.execute("SELECT * FROM SetRewards")
-        rows = cursor.fetchall()
-        conn.close()
+        conn = await  aiosqlite.connect("cards.db")
+        cursor = await conn.execute("SELECT * FROM SetRewards")
+        rows = await cursor.fetchall()
+        await conn.close()
         select_options = [
             discord.SelectOption(label=row[1], value=row[1], description=row[4])
             for row in rows
@@ -1161,20 +1205,23 @@ class Script(commands.Cog):
     @commands.command()
     async def tip(self, ctx, username, cash):
         # check if user exists in database
-        conn = sqlite3.connect("cards.db")
-        users = conn.execute(
+        conn = await  aiosqlite.connect("cards.db")
+        cursor = await conn.execute(
             "SELECT * FROM Users WHERE username = ?", (username,)
-        ).fetchall()
+        )
+        users = await cursor.fetchall()
         if len(users) == 0:
             await ctx.channel.send("No such user...")
             return
 
         # transfer cash
-        user_id = conn.execute(
+        cursor = await conn.execute(
             "SELECT id FROM Users WHERE username = ?", (username,)
-        ).fetchall()[0][0]
-        conn.close()
-        helper.transfer("cash", ctx.author.id, user_id, amount=cash)
+        )
+        user_id = await cursor.fetchall()
+        user_id = user_id[0][0]
+        await conn.close()
+        await helper.transfer("cash", ctx.author.id, user_id, amount=cash)
         await ctx.channel.send(
             f"<@{ctx.author.id}> just tipped <@{user_id}> {cash} cash!!!"
         )
@@ -1183,20 +1230,24 @@ class Script(commands.Cog):
     @commands.command()
     # redeem an available code by using command them code right after (only one of the same code per user)
     async def code(self, ctx, code):
-        conn = sqlite3.connect("cards.db")
+        conn = await aiosqlite.connect("cards.db")
         # get info about code
         try:
-            code_info = conn.execute(
+            cursor = await conn.execute(
                 "SELECT * FROM Codes WHERE code = ?", (code,)
-            ).fetchall()[0]
+            )
+            
+            code_info = await cursor.fetchall()
+            code_info = code_info[0]
             # check if already claimed by user
-            codes_claimed = (
-                conn.execute(
+            cursor = (
+                await conn.execute(
                     "SELECT CodesClaimed From Users WHERE id = ?", (ctx.author.id,)
                 )
-                .fetchall()[0][0]
-                .split(",")
             )
+            codes_claimed = await cursor.fetchall()
+            codes_claimed = codes_claimed[0][0]
+            codes_claimed = codes_claimed.split(",")
             code_id = code_info[0]
             if str(code_id) in codes_claimed:
                 raise helper.AlreadyClaimedError
@@ -1214,20 +1265,20 @@ class Script(commands.Cog):
             # reward cash
             if reward_id == -1:
                 quantity = code_info[3]
-                conn.execute(
+                await conn.execute(
                     f"UPDATE Users SET cash = cash + {quantity} WHERE id = ?",
                     (ctx.author.id,),
                 )
             # reward vouchers
             elif reward_id == -2:
                 quantity = code_info[3]
-                conn.execute(
+                await conn.execute(
                     f"UPDATE Users SET vouchers = vouchers + {quantity} WHERE id = ?",
                     (ctx.author.id,),
                 )
             # reward card
             else:
-                helper.add_card(
+                await helper.add_card(
                     ctx.author.id, reward_id, handle_connection=False, conn=conn
                 )
 
@@ -1235,7 +1286,7 @@ class Script(commands.Cog):
             # if code_id != -1:
             codes_claimed = ",".join(str(s) for s in codes_claimed)
             codes_claimed += f"{code_id},"
-            conn.execute(
+            await conn.execute(
                 f"UPDATE Users SET CodesClaimed = ? WHERE id = ?",
                 (
                     codes_claimed,
@@ -1245,7 +1296,7 @@ class Script(commands.Cog):
 
             # display message for success
             await ctx.channel.send(
-                f"<@{ctx.author.id}> You have successfully claimed {name}!"
+                f"<@{ctx.author.id}> You have successfully claimed: {name}!"
             )
 
         # if code does not exist
@@ -1261,9 +1312,9 @@ class Script(commands.Cog):
             await ctx.channel.send(f"<@{ctx.author.id}> This code is not available...")
         # resolve
         finally:
-            conn.commit()
-            conn.close()
-            return
+            await conn.commit()
+            await conn.close()
+
 
 
 # setup cog/connection of this file to main.py

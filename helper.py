@@ -1,4 +1,4 @@
-import sqlite3
+import aiosqlite
 
 
 class CardNotFoundError(Exception):
@@ -22,21 +22,21 @@ class AlreadyClaimedError(Exception):
 
 
 # handle_connection: whether or not to open, commit, and close the db within the function
-# conn: the sqlite3 connection to the database (not needed if handle_connection is set to True)
-def add_card(user_id, card_id, handle_connection=True, conn=None):
+# conn: the aiosqlite connection to the database (not needed if handle_connection is set to True)
+async def add_card(user_id, card_id, handle_connection=True, conn=None):
     if handle_connection:
-        conn = sqlite3.connect("cards.db")
-    cursor = conn.execute(
+        conn = await aiosqlite.connect("cards.db")
+    cursor = await conn.execute(
         "SELECT NextNumber,total FROM CardsGeneral WHERE id = ?", (card_id,)
     )
-    rows = cursor.fetchall()
+    rows = await cursor.fetchall()
     if len(rows) == 0:
         raise CardNotFoundError
     next_number = rows[0][0]
     total = rows[0][1]
     if total != None and next_number > total:
         raise TotalCardsExceededError
-    conn.execute(
+    await conn.execute(
         "INSERT INTO Cards VALUES(NULL, ?, ?, ?, 1)",
         (
             card_id,
@@ -45,13 +45,13 @@ def add_card(user_id, card_id, handle_connection=True, conn=None):
         ),
     )
     # iterate next card number to be assigned for the specific card
-    conn.execute(
+    await conn.execute(
         "UPDATE CardsGeneral SET NextNumber = NextNumber + 1 WHERE id = ?",
         (card_id,),
     )
     if handle_connection:
-        conn.commit()
-        conn.close()
+        await conn.commit()
+        await conn.close()
     return
 
 
@@ -61,7 +61,7 @@ def add_card(user_id, card_id, handle_connection=True, conn=None):
 # transfer_type: cash, vouchers, or card (what is being transferred)
 # name/number: card name/ card number out of total (CARD TYPE ONLY)
 # amount: amount being transferred (only relevant for cash and voucher transfer)
-def transfer(transfer_type, giver_id, recipient_id, name=None, number=None, amount=0):
+async def transfer(transfer_type, giver_id, recipient_id, name=None, number=None, amount=0):
     if (
         transfer_type != "cash"
         and transfer_type != "vouchers"
@@ -69,21 +69,23 @@ def transfer(transfer_type, giver_id, recipient_id, name=None, number=None, amou
     ):
         raise ValueError("Invalid transfer value type...")
 
-    conn = sqlite3.connect("cards.db")
+    conn = await aiosqlite.connect("cards.db")
     if transfer_type == "cash" or transfer_type == "vouchers":
-        conn.execute(
+        await conn.execute(
             f"UPDATE Users SET {transfer_type} = {transfer_type} - {amount} WHERE id = ?",
             (giver_id,),
         )
-        conn.execute(
+        await conn.execute(
             f"UPDATE Users SET {transfer_type} = {transfer_type} + {amount} WHERE id = ?",
             (recipient_id,),
         )
     else:
-        general_id = conn.execute(
+        cursor = await conn.execute(
             "SELECT id FROM CardsGeneral WHERE name = ?", (name,)
-        ).fetchall()[0][0]
-        conn.execute(
+        )
+        general_id = await cursor.fetchall()
+        general_id = general_id[0][0]
+        await conn.execute(
             f"UPDATE Cards SET owner_id = ? WHERE general_id = ? AND number = ?",
             (
                 recipient_id,
@@ -91,5 +93,5 @@ def transfer(transfer_type, giver_id, recipient_id, name=None, number=None, amou
                 number,
             ),
         )
-    conn.commit()
-    conn.close()
+    await conn.commit()
+    await conn.close()
