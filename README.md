@@ -109,6 +109,7 @@ The bot uses a few main tables to manage data:
 | `CardsRequired` | Comma-separated IDs of required cards |
 | `description` | Description of the set reward |
 | `quantity` | Amount of cash/vouchers given if applicable |
+| `special_message` | Special message when redeeming set |
 
 ---
 

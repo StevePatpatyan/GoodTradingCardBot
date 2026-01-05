@@ -10,10 +10,52 @@ import dotenv
 import os
 
 
+MAX_OF_ONE_CARD = 3
+
 class Script(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # # view cards through html file
+    # @commands.command()
+    # async def viewcards(self, ctx, user):
+    #     # get users card names
+    #     conn = await  aiosqlite.connect("cards.db")
+    #     if user == "all":
+    #         cursor = await conn.execute(
+    #             "SELECT id FROM CardsGeneral WHERE id != -1 AND id != -2"
+    #         )
+    #     else:
+    #         id = int(user[2:-1])
+    #         cursor = await conn.execute(
+    #             "SELECT general_id FROM Cards WHERE owner_id = ?", (id,)
+    #         )
+    #     rows = await cursor.fetchall()
+    #     # check if there are cards associated with the id
+    #     if len(rows) == 0:
+    #         await ctx.channel.send(
+    #             "Either this user has no cards or is not in the database..."
+    #         )
+    #         return
+
+    #     general_ids = set([row[0] for row in rows])
+
+    #     # get card name and total of card from general database here
+    #     names = []
+    #     totals = []
+    #     for general in general_ids:
+    #         cursor = await conn.execute(
+    #             "SELECT name,total FROM CardsGeneral WHERE id = ?", (general,)
+    #         )
+    #         rows = await cursor.fetchall()
+    #         names = names + [row[0] for row in rows]
+    #         totals = totals + [row[1] for row in rows]
+    #     await conn.close()
+    #     totals = ["N/A" if total == None else total for total in totals]
+    #     await ctx.channel.send("This command is currently under construction!")
+    #     return
+
+    # view cards through discord and dropdown menus
     # format of parameter should be @user or "all" to view all cards in game
     @commands.command()
     async def viewcards(self, ctx, user):
@@ -49,13 +91,10 @@ class Script(commands.Cog):
             image = rows[0][0]
             await conn.close()
             # display card image
-            if image.split(".")[1] == "gif":
-                await ctx.channel.send(file=discord.File(image), view=view)
-                await interaction.response.edit_message(view=None)
+            if "gif" in image:
+                await ctx.channel.send(image)
             else:
-                await interaction.response.edit_message(
-                    attachments=[discord.File(image)], view=view
-                )
+                await ctx.channel.send(file=discord.File(image))
             return
 
         # get users card names
@@ -225,7 +264,7 @@ class Script(commands.Cog):
                     reward_ids = reward_ids.split(",")
                     reward_id = int(random.choice(reward_ids))
                     # reward current rarity (else, go next rarity and increase multipliers and rolls)
-                    if random.choice(range(rolls)) >= 5 or drop == "MYTHICAL PULL":
+                    if random.choice(range(rolls)) >= 6 or drop == "MYTHICAL PULL":
                         if reward_id == 0:
                             pulls.append(f"- {drop} - Nothing...")
                         elif reward_id == -1:
@@ -245,20 +284,31 @@ class Script(commands.Cog):
 
                         # card reward
                         else:
+                            cursor = await conn.execute("SELECT name,total,NextNumber,image FROM CardsGeneral WHERE id = ?",
+                                (reward_id,),)
+                            rows = await cursor.fetchall()
+                            next_number = rows[0][2]
+                            total = rows[0][1]
+                            card_name = rows[0][0]
+                            # check if user has the max of the card already if there is infinite of the card, if so, award vouchers based on rarity
+                            if total == None:
+                                cursor = await conn.execute("SELECT * FROM Cards WHERE general_id = ? AND owner_id = ?", (reward_id, ctx.author.id,))
+                                num_cards_owned = await cursor.fetchall()
+                                num_cards_owned = len(num_cards_owned)
+                                if num_cards_owned >= MAX_OF_ONE_CARD:
+                                    vouchers_rewarded = round(voucher_base * voucher_multiplier)
+                                    await conn.execute(
+                                    f"UPDATE Users SET vouchers = vouchers + {vouchers_rewarded} WHERE id = ?",
+                                    (ctx.author.id,),
+                                )
+                                    pulls.append(f"- {drop}, but you already had the max number of {card_name}, so you were awarded {vouchers_rewarded} Vouchers instead.")
+                                    break
                             await helper.add_card(
                                 ctx.author.id,
                                 reward_id,
                                 handle_connection=False,
                                 conn=conn,
                             )
-                            cursor = await conn.execute(
-                                "SELECT name,total,NextNumber,image FROM CardsGeneral WHERE id = ?",
-                                (reward_id,),
-                            )
-                            rows = await cursor.fetchall()
-                            next_number = rows[0][2]
-                            total = rows[0][1]
-                            card_name = rows[0][0]
                             pulls.append(f"- {drop} - {card_name}")
                             # send image of card to show off if mythical
                             if drop == "MYTHICAL PULL":
@@ -288,7 +338,12 @@ class Script(commands.Cog):
                     else:
                         cash_multiplier *= 2
                         voucher_multiplier += 1
-                        rolls = math.ceil(rolls + (rolls - 10) * 1.5)
+                        # mythical harder to get
+                        if drop == "Legendary Drop":
+                            rolls = round(rolls + (rolls - 11) * 3)
+                        else:
+                            rolls = round(rolls + (rolls - 11) * 1.5)
+
                     # ensure rewrd ids is string so that next iteration is smooth
                     if isinstance(reward_ids, list):
                         reward_ids = ",".join(reward_ids)
@@ -1074,7 +1129,7 @@ class Script(commands.Cog):
 
             # get the id of the reward and cards needed to claim
             cursor = await conn.execute(
-                "SELECT reward_id,CardsRequired,quantity FROM SetRewards WHERE name = ?",
+                "SELECT reward_id,CardsRequired,quantity,special_message FROM SetRewards WHERE name = ?",
                 (value,),
             )
             row = await cursor.fetchall()
@@ -1082,6 +1137,7 @@ class Script(commands.Cog):
             reward_id = row[0]
             cards_required = row[1].split(",")
             quantity = row[2]
+            special_msg = row[3]
 
             # ensure user has all cards needed
             cursor = await conn.execute(
@@ -1171,6 +1227,8 @@ class Script(commands.Cog):
             )
             await conn.commit()
             await conn.close()
+            if special_msg is not None:
+                await ctx.channel.send(special_msg)
             return
 
         # make select menus for set reward choices
