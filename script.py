@@ -313,7 +313,10 @@ class Script(commands.Cog):
                             # send image of card to show off if mythical
                             if drop == "MYTHICAL PULL":
                                 image = rows[0][3]
-                                await ctx.channel.send(file=discord.File(image))
+                                if "gif" in image:
+                                    await ctx.channel.send(image)
+                                else:
+                                    await ctx.channel.send(file=discord.File(image))
                                 # # Play special video if card is 1 of 1
                                 # if total == 1:
                                 #     dotenv.load_dotenv()
