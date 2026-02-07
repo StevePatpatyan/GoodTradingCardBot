@@ -10,7 +10,9 @@ import dotenv
 import os
 
 
-MAX_OF_ONE_CARD = 3
+MAX_OF_ONE_CARD = 10
+
+
 
 class Script(commands.Cog):
     def __init__(self, bot):
@@ -343,7 +345,7 @@ class Script(commands.Cog):
                         voucher_multiplier += 1
                         # mythical harder to get
                         if drop == "Legendary Drop":
-                            rolls = round(rolls + (rolls - 11) * 3)
+                            rolls = round(rolls + (rolls - 11) * 5)
                         else:
                             rolls = round(rolls + (rolls - 11) * 1.5)
 
@@ -1375,8 +1377,84 @@ class Script(commands.Cog):
         finally:
             await conn.commit()
             await conn.close()
+    
+    @commands.command()
+    @commands.dm_only()
+    # allow a screenshot to be posted for verification to receive an award from an adventure
+    # from the Good Trading Adventure Game https://github.com/StevePatpatyan/GoodTradingAdventures
+    async def adventure_proof(self, ctx):
+            await ctx.author.send("Got proof of completing an adventure? Send the screenshot here and it will be reviewed for a reward!")
+            try:
+                response = await self.bot.wait_for(
+                    "message",
+                    check=lambda m: m.author == ctx.author and isinstance(m.channel, discord.DMChannel) and m.attachments and m.attachments[0].content_type.startswith('image')
+                )
+                owner_id = os.getenv("OWNER_ID")
+                owner = await self.bot.fetch_user(owner_id)
+                await owner.send(response.attachments[0])
+                await ctx.author.send("Sent successfully. Keep and eye out...")
+            except TimeoutError:
+                return
 
-
+    # @commands.command()
+    # @commands.is_owner()
+    # async def trivia(self, ctx):
+    #     NUM_QUESTIONS = 1
+    #     questions = []
+    #     answers = [[]]
+    #     points = {}
+    #     prizes = ["id here"]
+    #     prize_names = []
+    #     for question_num in range(NUM_QUESTIONS):
+    #         question_index = random.randint(0, len(questions) - 1)
+    #         question = questions[question_index]
+    #         questions.remove(question)
+    #         await ctx.channel.send(f"Get ready for question number {question_num + 1}")
+    #         await asyncio.sleep(3)
+    #         await ctx.channel.send(question)
+    #         try:
+    #             response = await self.bot.wait_for(
+    #                 "message", check=lambda m: m.content.lower() in answers[question_index], timeout=30
+    #                 )
+    #             user = response.author
+    #             if user.id not in points:
+    #                 points[user.id] = 1
+    #             else:
+    #                 points[user.id] += 1
+                
+    #             # special baby carlos question
+    #             if questions[question_index][0] == "https://tenor.com/view/carlos-the-hangover-baby-gif-130170317333500369":
+    #                 await helper.add_card(user.id, <special id here (in this case, baby carlos from hangover)>)
+    #                 await ctx.channel.send("You got BABY CARLOS!")
+    #             await ctx.channel.send(f"Correct, <@{user.id}>! The correct answer was {answers[question_index][0].upper()}")
+    #         except asyncio.TimeoutError:
+    #             await ctx.channel.send(f"Nobody answered correctly. The correct answer was {answers[question_index][0].upper()}")
+    #         finally:
+    #             await asyncio.sleep(2)
+    #     await ctx.channel.send("And the results: ")
+    #     conn = await aiosqlite.connect("cards.db")
+    #     place = 1
+    #     for user, amount in points.items():
+    #         if len(prizes) >= place:
+    #             prize = prizes[place - 1]
+    #             print(prizes[place - 1].split(" "))
+    #             if "cash" in prizes[place - 1].split(" "):
+    #                 cash = int(prize.split(" ")[0])
+    #                 await conn.execute(f"UPDATE Users SET cash = cash + {cash} WHERE id = ?", (ctx.author.id,))
+                
+    #             elif len(prizes) >= place:
+    #                 prize = prizes[place - 1]
+    #                 if "vouchers" in prizes[place - 1].split(" "):
+    #                     vouchers = int(prize.split(" ")[0])
+    #                     await conn.execute(f"UPDATE Users SET cash = vouchers + {vouchers} WHERE id = ?", (ctx.author.id,))
+    #             # card prize
+    #             else:
+    #                 card_id = int(prizes[place - 1])
+    #                 await helper.add_card(user.id, card_id, handle_connection=False, conn=conn)
+    #             await ctx.channel.send(f"**#{place}** <@{user}>: {amount} points || Prize: {prize_names[place - 1]}")
+    #     await ctx.channel.send("Prizes should have been given. If you don't see you name here and you participated or you didn't get your prize, please contact the host. THANKS FOR PLAYING WOOOOOOO!")
+    #     await conn.commit()
+    #     await conn.close()
 
 # setup cog/connection of this file to main.py
 async def setup(bot):

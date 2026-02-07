@@ -145,3 +145,6 @@ This allows full control over pack rarity balance and reward distribution.
 ---
 
 **Happy Collecting! 🎉**
+
+
+Good Trading Adventures, the Good Trading Card Video Game Integration (See here: COMING SOON)
