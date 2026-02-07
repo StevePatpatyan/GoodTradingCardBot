@@ -27,6 +27,7 @@ async def on_ready():
     # await channel.send(news)
     # Load the command files
     await bot.load_extension("script")
+    await bot.load_extension("adventureScript")
     # await bot.load_extension("personalScript")
 
 
