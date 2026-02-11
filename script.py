@@ -120,16 +120,19 @@ class Script(commands.Cog):
 
         general_ids = set([row[0] for row in rows])
 
-        # get card name and total of card from general database here
-        names = []
-        totals = []
-        for general in general_ids:
-            cursor = await conn.execute(
-                "SELECT name,total FROM CardsGeneral WHERE id = ?", (general,)
-            )
-            rows = await cursor.fetchall()
-            names = names + [row[0] for row in rows]
-            totals = totals + [row[1] for row in rows]
+        # get card name and total of card from general database here and order by alphabetical order
+        placeholders = ",".join(["?"] * len(general_ids))
+        query = f"""
+        SELECT name, total
+        FROM CardsGeneral
+        WHERE id IN ({placeholders})
+        ORDER BY name ASC
+        """
+
+        await cursor.execute(query, tuple(general_ids))
+        rows = await cursor.fetchall()
+        names = [row[0] for row in rows]
+        totals = [row[1] for row in rows]
         await conn.close()
         totals = ["N/A" if total == None else total for total in totals]
         # make a select menu of user cards plus an option to cancel
@@ -1378,6 +1381,34 @@ class Script(commands.Cog):
             await conn.commit()
             await conn.close()
     
+    @commands.command()
+    # claim all items in inbox
+    async def claim(self, ctx):
+        conn = await aiosqlite.connect("cards.db")
+        cursor = await conn.execute("SELECT inbox FROM Users WHERE id = ?", (ctx.author.id,))
+        items = await cursor.fetchall()
+        items = items[0][0]
+        if items == None:
+            await ctx.channel.send("You have no items in your inbox.")
+            return
+        
+        items = items.split(",")
+        await ctx.channel.send(f"<@{ctx.author.id} You claimed the following:")
+        for item in items:
+            card_id = int(item.split("|")[0])
+            await helper.add_card(ctx.author.id, card_id, False, conn)
+            cursor = await conn.execute("SELECT name FROM CardsGeneral WHERE id = ?", (card_id,))
+            name = await cursor.fetchall()
+            name = name[0][0]
+            message = item.split("|")[1]
+            await ctx.channel.send(f"{message}\n**{name}**")
+        await conn.execute("UPDATE Users SET inbox = NULL Where id = ?", (ctx.author.id,))
+        await conn.commit()
+        await conn.close()
+        
+
+
+        
 
     
     # @commands.command()

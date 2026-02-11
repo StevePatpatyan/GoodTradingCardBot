@@ -56,7 +56,7 @@ The bot uses a few main tables to manage data:
 | `SetsClaimed` | IDs of claimed set rewards (comma-separated) |
 | `CodesClaimed` | IDs of claimed codes (comma-separated) |
 | `opening_pack` | indicates whether or not a user is currently opening a pack (prevents spam) |
-
+| `inbox` | lists reward ids waiting to be claimed accompanied by a message (reward id to message separated by "|" and the rewards separated by comma) (the user uses $claim to claim)
 ---
 
 ### **Packs**
