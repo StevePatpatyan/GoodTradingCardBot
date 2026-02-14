@@ -87,6 +87,7 @@ async def daily_pokespawn_loop(bot: commands.Bot):
             legendary_index = random.randrange(len(all_legendaries))
             pokecards.append(all_legendaries[legendary_index])
             ids.append(all_legendary_ids[legendary_index])
+            await channel.send("**You sense the presence of something legendary...")
 
         spawn_count = len(pokecards)
 
