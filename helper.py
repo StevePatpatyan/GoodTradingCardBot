@@ -95,3 +95,13 @@ async def transfer(transfer_type, giver_id, recipient_id, name=None, number=None
         )
     await conn.commit()
     await conn.close()
+
+# total must be either integer value or NULL
+async def make_cards(names: list[str], totals: list):
+    conn = await aiosqlite.connect("cards.db")
+
+    for i in range(len(names)):
+        await conn.execute(f"INSERT INTO CardsGeneral (image, name, total) VALUES (?, ?, ?)", (f"Images/{names[i]}.png", names[i], totals[i] if totals[i] == None else int(totals[i],)))
+    
+    await conn.commit()
+    await conn.close()

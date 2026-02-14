@@ -821,7 +821,7 @@ class Script(commands.Cog):
                             continue
                     except TimeoutError:
                         await ctx.channel.send(
-                            f"<@{ctx.author.id} your trade window has timed out..."
+                            f"<@{ctx.author.id}> your trade window has timed out..."
                         )
                         return
                 # no results
@@ -1393,7 +1393,7 @@ class Script(commands.Cog):
             return
         
         items = items.split(",")
-        await ctx.channel.send(f"<@{ctx.author.id} You claimed the following:")
+        await ctx.channel.send(f"<@{ctx.author.id}> You claimed the following:")
         for item in items:
             card_id = int(item.split("|")[0])
             await helper.add_card(ctx.author.id, card_id, False, conn)
