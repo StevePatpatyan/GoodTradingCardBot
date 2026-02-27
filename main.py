@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 import dotenv
 import os
 import aiosqlite
@@ -14,15 +14,17 @@ dotenv.load_dotenv(override=True)
 TIMEZONE = ZoneInfo("US/Pacific")
 
 # choose the group of pokecards that will randomly appear
-all_pokecards = [["Bulbatig", "Varmander", "Squirtstudio", "Davorita", "Cyndascott", "Davodile"]]
+all_pokecards = [["Bulbatig", "Varmander", "Squirtstudio", "Davorita", "Cyndascott", "Davodile", "Mieko", "Alchic", "Vantkip"]]
 all_ids = [[167, 168, 169, 174, 175, 176, 181, 182, 183]]
-all_shiny_ids = [[171, 172, 173, 178, 179, 180]]
-all_legendaries = ["Styoptwo"]
-all_legendary_ids = [188]
-all_legendary_shiny_ids = [189]
+all_shiny_ids = [[171, 172, 173, 178, 179, 180, 185, 186, 187]]
+all_legendaries = ["Styoptwo", "Raysako"]
+all_legendary_ids = [188, 192]
+all_legendary_shiny_ids = [189, 193]
 GENERATION_WORDS = ["first, second, and third"]
-NUM_GROUPS = 3
+# NUM_GROUPS = 3
 CHOSEN_POKECARD_GROUP = random.randrange(len(all_pokecards))
+
+SHINY_CHANCE = 20
 
 bot = commands.Bot(command_prefix="$", intents=intents)
 
@@ -67,7 +69,8 @@ async def daily_pokespawn_loop(bot: commands.Bot):
         now = datetime.now(TIMEZONE)
 
         # Next local midnight
-        next_midnight = datetime.combine(now.date() + timedelta(days=1), time.min, tzinfo=TIMEZONE)
+        # next_midnight = datetime.combine(now.date() + timedelta(days=1), time.min, tzinfo=TIMEZONE)
+        next_midnight = datetime.combine(now.date(), time(22,0))
         seconds_left = int((next_midnight - now).total_seconds())
 
         # If we somehow hit midnight exactly, just roll
@@ -87,7 +90,8 @@ async def daily_pokespawn_loop(bot: commands.Bot):
             legendary_index = random.randrange(len(all_legendaries))
             pokecards.append(all_legendaries[legendary_index])
             ids.append(all_legendary_ids[legendary_index])
-            await channel.send("**You sense the presence of something legendary...")
+            shiny_ids.append(all_legendary_shiny_ids[legendary_index])
+            await channel.send("**You sense the presence of something legendary...**")
 
         spawn_count = len(pokecards)
 
@@ -107,8 +111,8 @@ async def daily_pokespawn_loop(bot: commands.Bot):
             card_id = ids.pop(i)
             shiny_card_id = shiny_ids.pop(i)
 
-            shiny_integer = random.randint(1, 20)
-            if shiny_integer == 20:
+            shiny_integer = random.randint(1, SHINY_CHANCE)
+            if shiny_integer == SHINY_CHANCE:
                 await channel.send(content="@here", file=discord.File(f"Images/✨✨{name}✨✨.png"))
             else:
                 await channel.send(content="@here", file=discord.File(f"Images/{name}.png"))
@@ -123,14 +127,23 @@ async def daily_pokespawn_loop(bot: commands.Bot):
                     )
                 )
                 catcher_id = msg.author.id
+
                 # punish catcher with id
-               # if catcher_id == 724084272872423544:
+               # if catcher_id == <id here>:
                  #   await channel.send(f"<@{catcher_id}> you don't have any pokeballs.")
                 #else:
                 if shiny_integer == 20:
                     await helper.add_card(catcher_id, shiny_card_id, True)
                     await channel.send(f"<@{catcher_id}> caught ✨✨{name}✨✨!")
                 else:
+                    # if catcher has shiny charm, roll again
+                    if helper.has_shiny_charm(catcher_id):
+                        if random.randint(1, SHINY_CHANCE) == SHINY_CHANCE: 
+                            await helper.add_card(catcher_id, shiny_card_id, True)
+                            await channel.send(f"<@{catcher_id}>'s shiny charm activated!!!")
+                            await channel.send(f"<@{catcher_id}> caught {name}!")
+                            continue
+
                     await helper.add_card(catcher_id, card_id, True)
                     await channel.send(f"<@{catcher_id}> caught {name}!")
             except asyncio.TimeoutError:

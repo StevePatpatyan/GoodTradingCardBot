@@ -1,5 +1,6 @@
 import aiosqlite
-
+from dotenv import load_dotenv
+import os
 
 class CardNotFoundError(Exception):
     pass
@@ -105,3 +106,14 @@ async def make_cards(names: list[str], totals: list):
     
     await conn.commit()
     await conn.close()
+
+# check if user has shiny charm
+async def has_shiny_charm(user_id: int):
+    load_dotenv(override=True)
+    shiny_charm_id = os.getenv("SHINY_CHARM_ID")
+    conn = await aiosqlite.connect("cards.db")
+    cursor = await conn.execute("SELECT id from Cards WHERE general_id = ? AND owner_id = ?", (shiny_charm_id,user_id,))
+    rows = await cursor.fetchall()
+
+    await conn.close()
+    return len(rows) > 0

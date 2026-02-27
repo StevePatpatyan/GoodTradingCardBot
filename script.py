@@ -15,8 +15,8 @@ MAX_OF_ONE_CARD = 10
 
 
 class Script(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
+    def __init__(self, bot: commands.Bot):
+        self.bot: commands.Bot = bot
 
     # # view cards through html file
     # @commands.command()
@@ -57,8 +57,33 @@ class Script(commands.Cog):
     #     await ctx.channel.send("This command is currently under construction!")
     #     return
 
-    # view cards through discord and dropdown menus
-    # format of parameter should be @user or "all" to view all cards in game
+    # reload extension so that new commands are added at runtime without shutting down bot
+    @commands.command()
+    @commands.is_owner() # Restrict this command to the bot owner
+    async def reload(self, ctx, extension):
+        try:
+            await self.bot.reload_extension(f"cogs.{extension}")
+            embed = discord.Embed(title='Reload', description=f'{extension} successfully reloaded', color=0xff00c8)
+            await ctx.author.send(embed=embed)
+        except commands.ExtensionError as e:
+            await ctx.send(f'Failed to reload extension {extension}: {e}')
+
+
+    # get id of a card
+    @commands.command()
+    async def cardid(self, ctx, card_name):
+        conn = await aiosqlite.connect("cards.db")
+        cursor = await conn.execute("SELECT id FROM CardsGeneral WHERE name = ?", (card_name,))
+        card_id = await cursor.fetchall()
+        if len(card_id) == 0:
+            await ctx.channel.send("No such card...")
+        else:
+            await ctx.channel.send(card_id[0][0])
+        await conn.close()
+
+
+        # view cards through discord and dropdown menus
+        # format of parameter should be @user or "all" to view all cards in game
     @commands.command()
     async def viewcards(self, ctx, user):
         # check if input is valid
